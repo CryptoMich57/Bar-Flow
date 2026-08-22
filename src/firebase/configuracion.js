@@ -16,10 +16,8 @@ export const DEFAULTS_CONFIG = {
     { id: 3, nombre: 'Mozo 3', mesas_asignadas: [] },
   ],
   mesas: { cantidad: 10 },
-  accesos: {
-    cocina: '1234',
-    encargado: '0000',
-  },
+  // Las contrasenas ya no viven aca: el acceso del personal usa cuentas
+  // de Firebase Authentication y los roles se leen de /usuarios/{uid}.
 }
 
 export const suscribirConfiguracion = (callback) => {

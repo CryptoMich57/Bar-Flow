@@ -1,42 +1,104 @@
 rules_version = '2';
+
+// ============================================================
+//  REGLAS DE SEGURIDAD — BarFlow
+//
+//  Modelo:
+//  - El comensal entra con una sesion ANONIMA que la app crea sola.
+//    No ve ningun login, pero deja de ser "internet abierto": para
+//    tocar la base hay que ser un usuario de la app.
+//  - El personal usa cuentas reales de Firebase Authentication.
+//    Su rol vive en /usuarios/{uid}.rol y solo se edita desde la
+//    consola de Firebase. La app nunca lo escribe.
+//
+//  Roles: 'encargado' | 'cocina' | 'mozo'
+// ============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function logueado() {
+      return request.auth != null;
+    }
+
+    function fichaUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function tieneFicha() {
+      return logueado()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+
+    function esPersonal() {
+      return tieneFicha() && fichaUsuario().rol in ['encargado', 'cocina', 'mozo'];
+    }
+
+    function esEncargado() {
+      return tieneFicha() && fichaUsuario().rol == 'encargado';
+    }
+
     // ── CARTA ────────────────────────────────────────────────
-    // Cualquiera puede leer la carta (clientes, mozos, cocina)
-    // Solo usuarios autenticados pueden modificarla (encargado)
+    // La lee cualquiera con sesion; solo el encargado la edita.
     match /carta/{itemId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read:  if logueado();
+      allow write: if esEncargado();
+    }
+
+    // ── CONFIGURACION DEL SISTEMA ────────────────────────────
+    // La app necesita leer datos de transferencia, nombres de mozos
+    // y cantidad de mesas. Modificarla es cosa del encargado.
+    match /sistema/{docId} {
+      allow read:  if logueado();
+      allow write: if esEncargado();
     }
 
     // ── MESAS ────────────────────────────────────────────────
-    // Cualquiera puede leer y escribir en mesas (clientes sin login)
-    // En producción avanzada se puede restringir por IP o token
+    // El comensal necesita escribir en su mesa (carrito, pedidos,
+    // chat, llamadas), asi que alcanza con tener sesion. Borrar
+    // queda reservado al personal.
     match /mesas/{mesaId} {
-      allow read, write: if true;
+      allow read:           if logueado();
+      allow create, update: if logueado();
+      allow delete:         if esEncargado();
 
-      // Subcolecciones: pedidos, mensajes, llamadas
       match /pedidos/{pedidoId} {
-        allow read, write: if true;
+        allow read:           if logueado();
+        allow create, update: if logueado();
+        allow delete:         if esPersonal();
       }
+
       match /mensajes/{mensajeId} {
-        allow read, write: if true;
+        allow read:           if logueado();
+        allow create:         if logueado();
+        allow update, delete: if esPersonal();
       }
+
       match /llamadas/{llamadaId} {
-        allow read, write: if true;
+        allow read:           if logueado();
+        allow create:         if logueado();
+        allow update, delete: if esPersonal();
       }
     }
 
-    // ── HISTORIAL ─────────────────────────────────────────────
-    // Solo autenticados pueden leer y escribir historial
+    // ── HISTORIAL Y CAJA ─────────────────────────────────────
+    // Facturacion cerrada: ningun comensal la ve ni la toca.
     match /historial/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, create:   if esPersonal();
+      allow update, delete: if esEncargado();
     }
 
-    // ── USUARIOS ──────────────────────────────────────────────
+    // ── ROLES ────────────────────────────────────────────────
+    // Cada usuario puede leer su propia ficha para saber que vista
+    // le corresponde. Escribirlas, solo desde la consola.
     match /usuarios/{userId} {
-      allow read, write: if request.auth != null;
+      allow read:  if logueado() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Todo lo que no este declarado arriba queda cerrado.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

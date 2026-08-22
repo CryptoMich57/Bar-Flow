@@ -7,7 +7,8 @@ import { suscribirCarta, confirmarPedido, agregarPedidoExtra } from '../firebase
 import styles from './MozoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta, activarAudio, estaActivado } from '../utils/sonidos'
+import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta, activarAudio } from '../utils/sonidos'
+import { cerrarSesion } from '../firebase/auth'
 
 const NUMS_MESAS = Array.from({ length: APP_CONFIG.mesas.cantidad }, (_, i) => String(i + 1))
 
@@ -255,6 +256,7 @@ export default function MozoPage() {
             {audioOn ? '🔔' : '🔕'}
           </button>
           <button className={styles.cambiarBtn} onClick={() => setMozoActivo(null)}>Cambiar</button>
+          <button className={styles.cambiarBtn} onClick={() => cerrarSesion()}>Salir</button>
         </div>
       </header>
 

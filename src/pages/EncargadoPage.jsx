@@ -8,11 +8,12 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { getCopyright, getNombreBar, getLogo, APP_CONFIG } from '../config'
-import { suscribirConfiguracion, guardarConfiguracion } from '../firebase/configuracion'
+import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '../firebase/configuracion'
 import styles from './EncargadoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje, activarAudio, estaActivado } from '../utils/sonidos'
+import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
+import { cerrarSesion } from '../firebase/auth'
 
 // NUMS_MESAS se genera dinámicamente desde configDB
 
@@ -57,16 +58,7 @@ export default function EncargadoPage() {
   useEffect(() => {
     const unsub = suscribirConfiguracion((cfg) => {
       if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
-      setConfigDB(cfg || {
-        transferencia: { titular: '', banco: '', cbu: '', alias: '' },
-        mozos: [
-          { id: 1, nombre: 'Mozo 1', mesas_asignadas: [] },
-          { id: 2, nombre: 'Mozo 2', mesas_asignadas: [] },
-          { id: 3, nombre: 'Mozo 3', mesas_asignadas: [] },
-        ],
-        mesas: { cantidad: 10 },
-        accesos: { cocina: '1234', encargado: '0000' },
-      })
+      setConfigDB(cfg || DEFAULTS_CONFIG)
     })
     return unsub
   }, [])
@@ -347,17 +339,6 @@ export default function EncargadoPage() {
     { key: 'ajustes',      label: '⚙️ Ajustes' },
   ]
 
-  const DEFAULTS_CONFIG = {
-    transferencia: { titular: '', banco: '', cbu: '', alias: '' },
-    mozos: [
-      { id: 1, nombre: 'Mozo 1', mesas_asignadas: [] },
-      { id: 2, nombre: 'Mozo 2', mesas_asignadas: [] },
-      { id: 3, nombre: 'Mozo 3', mesas_asignadas: [] },
-    ],
-    mesas: { cantidad: 10 },
-    accesos: { cocina: '1234', encargado: '0000' },
-  }
-
   const guardarAjustes = async () => {
     if (!configDB) return
     // Inicializar mesas nuevas si aumentó la cantidad
@@ -438,6 +419,7 @@ export default function EncargadoPage() {
           </button>
           <button className={styles.navBtn} onClick={() => navigate('/cocina')}>👨‍🍳 Cocina</button>
           <button className={styles.navBtn} onClick={() => navigate('/mozo')}>🧍 Mozo</button>
+          <button className={styles.navBtn} onClick={() => cerrarSesion()}>🚪 Cerrar sesion</button>
           <div className={styles.footerCopy}>{getCopyright()}</div>
         </div>
       </aside>
@@ -870,26 +852,15 @@ export default function EncargadoPage() {
                   <p className={styles.ajustesAviso}>⚠️ Este cambio se aplica al recargar la página.</p>
                 </div>
 
-                {/* ── CONTRASEÑAS ── */}
+                {/* ── ACCESO DEL PERSONAL ── */}
                 <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>🔒 Contraseñas de acceso</h3>
-                  <p className={styles.ajustesDesc}>Contraseñas para proteger las vistas internas.</p>
-                  <div className={styles.ajustesGrid}>
-                    <div className={styles.ajustesField}>
-                      <label>Contraseña cocina</label>
-                      <input className="input" type="password"
-                        value={configDB.accesos?.cocina || ''}
-                        onChange={e => updateConfig('accesos.cocina', e.target.value)}
-                        placeholder="Contraseña cocina" />
-                    </div>
-                    <div className={styles.ajustesField}>
-                      <label>Contraseña encargado</label>
-                      <input className="input" type="password"
-                        value={configDB.accesos?.encargado || ''}
-                        onChange={e => updateConfig('accesos.encargado', e.target.value)}
-                        placeholder="Contraseña encargado" />
-                    </div>
-                  </div>
+                  <h3 className={styles.ajustesTitulo}>🔒 Acceso del personal</h3>
+                  <p className={styles.ajustesDesc}>
+                    Cada vista interna (encargado, cocina, mozo) entra con una cuenta propia
+                    de Firebase Authentication. Las cuentas y sus roles se administran desde
+                    la consola de Firebase, no desde aca: asi una contrasena filtrada no
+                    queda guardada en la base de datos ni a la vista de nadie.
+                  </p>
                 </div>
 
                 {/* ── INFO SOLO LECTURA ── */}

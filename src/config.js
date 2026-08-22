@@ -21,12 +21,6 @@ export const APP_CONFIG = {
     // Los QR van a apuntar a /mesa/1, /mesa/2, ... /mesa/N
   },
 
-  // ── CONTRASEÑAS ────────────────────────────────────────────
-  accesos: {
-    cocina:     "cocina123",    // Contraseña para entrar a la vista de cocina
-    // Los mozos se logean con nombre desde su vista
-  },
-
   // ── DATOS DE TRANSFERENCIA ─────────────────────────────────
   transferencia: {
     titular:  "Nombre del Titular",
@@ -90,6 +84,5 @@ export const getCopyright   = () => `© ${new Date().getFullYear()} ${APP_CONFIG
 export const getMozos       = () => APP_CONFIG.mozos
 export const getTransferencia = () => APP_CONFIG.transferencia
 export const getCantidadMesas = () => APP_CONFIG.mesas.cantidad
-export const getCocinaClave = () => APP_CONFIG.accesos.cocina
 export const getTextos      = () => APP_CONFIG.textos
 export const getLogo        = () => APP_CONFIG.bar.logo

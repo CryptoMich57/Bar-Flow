@@ -1,0 +1,84 @@
+.pantalla {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.caja {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  align-self: center;
+  margin-bottom: 16px;
+}
+
+.titulo {
+  text-align: center;
+  color: var(--gold);
+  font-size: 1.25em;
+  margin: 0;
+}
+
+.subtitulo {
+  text-align: center;
+  color: var(--text2);
+  font-size: 0.9em;
+  margin: 6px 0 24px;
+}
+
+.label {
+  font-size: 0.78em;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+
+.error {
+  color: var(--red);
+  font-size: 0.85em;
+  margin-top: 12px;
+  text-align: center;
+}
+
+.aviso {
+  color: var(--text2);
+  font-size: 0.86em;
+  line-height: 1.6;
+  text-align: center;
+  margin: 0;
+}
+
+.ayuda {
+  color: var(--text3);
+  font-size: 0.76em;
+  text-align: center;
+  margin-top: 14px;
+}
+
+.cargando {
+  color: var(--text2);
+  text-align: center;
+  margin: 0;
+}
+
+.footer {
+  color: var(--text3);
+  font-size: 0.72em;
+  margin-top: 24px;
+  text-align: center;
+}

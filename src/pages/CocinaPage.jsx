@@ -6,24 +6,22 @@ import { suscribirConfiguracion } from '../firebase/configuracion'
 import styles from './CocinaPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoNuevoPedido, activarAudio, estaActivado } from '../utils/sonidos'
+import { sonidoNuevoPedido, activarAudio } from '../utils/sonidos'
+import { cerrarSesion } from '../firebase/auth'
 
 // NUMS_MESAS se genera dinámicamente
 
 export default function CocinaPage() {
-  const [autenticado, setAutenticado] = useState(false)
-  const [clave, setClave]             = useState('')
-  const [claveCorrecta, setClaveCorrecta] = useState('1234')
+  // Quien puede entrar aca lo decide PuertaDeAcceso con una cuenta real
+  // de Firebase; esta vista ya se renderiza solo si el rol es valido.
   const [cantidadMesas, setCantidadMesas] = useState(10)
 
   useEffect(() => {
     const unsub = suscribirConfiguracion((cfg) => {
-      if (cfg?.accesos?.cocina) setClaveCorrecta(cfg.accesos.cocina)
       if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
     })
     return unsub
   }, [])
-  const [errorClave, setErrorClave]   = useState(false)
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
   const [historialDia, setHistorialDia]     = useState([])
   const [tab, setTab]                 = useState('activos')
@@ -32,21 +30,8 @@ export default function CocinaPage() {
   const pedidosNuevos = useRef({})
   const { agregar: notif, NotifBanner } = useNotificaciones()
 
-  // ── Autenticación ────────────────────────────────────────────────────────────
-  const handleLogin = () => {
-    if (clave === claveCorrecta) {
-      setAutenticado(true)
-      setErrorClave(false)
-      activarAudio()
-    } else {
-      setErrorClave(true)
-      setClave('')
-    }
-  }
-
   // ── Suscripciones ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!autenticado) return
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num => {
       const q = query(collection(db, 'mesas', `mesa_${num}`, 'pedidos'), orderBy('created_at', 'asc'))
@@ -60,11 +45,11 @@ export default function CocinaPage() {
       })
     })
     return () => unsubs.forEach(u => u())
-  }, [autenticado, cantidadMesas])
+  }, [cantidadMesas])
 
   // ── Historial del día ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!autenticado || tab !== 'historial') return
+    if (tab !== 'historial') return
     const cargarHistorial = async () => {
       const hoy = new Date(); hoy.setHours(0,0,0,0)
       const todos = []
@@ -94,11 +79,10 @@ export default function CocinaPage() {
       setHistorialDia([...todos, ...cerradosHoy])
     }
     cargarHistorial()
-  }, [autenticado, tab, cantidadMesas])
+  }, [tab, cantidadMesas])
 
   // ── Detectar pedidos nuevos — sonido + notificación ─────────────────────────
   useEffect(() => {
-    if (!autenticado) return
     const todos = Object.entries(pedidosPorMesa)
       .flatMap(([mesaId, pedidos]) => pedidos.map(p => ({ ...p, mesaId })))
     const anteriores = pedidosAnteriores.current
@@ -141,31 +125,6 @@ export default function CocinaPage() {
   const enPrep     = todosPedidos.filter(p => p.estado === 'en_preparacion')
   const listos     = todosPedidos.filter(p => p.estado === 'listo')
 
-  // ── PANTALLA LOGIN ────────────────────────────────────────────────────────────
-  if (!autenticado) return (
-    <div className={styles.login}>
-      <div className={styles.loginBox}>
-        <img src={getLogo()} alt="Logo" className={styles.loginLogo} onError={e => e.target.style.display='none'} />
-        <h2 className={styles.loginTitle}>{getNombreBar()}</h2>
-        <p className={styles.loginSub}>👨‍🍳 Acceso Cocina</p>
-        <input
-          className={`input ${errorClave ? styles.inputError : ''}`}
-          type="password"
-          placeholder="Contraseña"
-          value={clave}
-          onChange={e => { setClave(e.target.value); setErrorClave(false) }}
-          onKeyDown={e => e.key === 'Enter' && handleLogin()}
-          autoFocus
-        />
-        {errorClave && <p className={styles.errorMsg}>Contraseña incorrecta</p>}
-        <button className="btn btn-gold" style={{marginTop:16}} onClick={handleLogin}>
-          Entrar
-        </button>
-      </div>
-      <footer className={styles.footer}>{getCopyright()}</footer>
-    </div>
-  )
-
   // ── VISTA PRINCIPAL ───────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
@@ -185,7 +144,7 @@ export default function CocinaPage() {
           >
             {audioOn ? '🔔' : '🔕'}
           </button>
-          <button className={styles.salirBtn} onClick={() => setAutenticado(false)}>Salir</button>
+          <button className={styles.salirBtn} onClick={() => cerrarSesion()}>Salir</button>
         </div>
       </header>
 

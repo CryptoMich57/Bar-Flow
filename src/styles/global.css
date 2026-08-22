@@ -145,3 +145,17 @@ h1, h2, h3 { font-family: 'DM Serif Display', serif; font-weight: 400; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ── Pantallas de estado (conectando, error, acceso) ────────── */
+.pantallaEstado {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text2);
+  text-align: center;
+  font-size: 0.9em;
+}
