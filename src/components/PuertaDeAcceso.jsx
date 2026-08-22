@@ -7,7 +7,7 @@ import styles from './PuertaDeAcceso.module.css'
 // Envuelve las vistas internas. Solo deja pasar a una cuenta real de Firebase
 // cuyo rol este en rolesPermitidos. El encargado entra a todas las vistas.
 export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, children }) {
-  const { user, rol, cargando } = useSesion()
+  const { user, rol, cargando } = useSesion({ anonimoAutomatico: false })
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState(null)
