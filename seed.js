@@ -4,14 +4,23 @@
 import { initializeApp } from 'firebase/app'
 import { getFirestore, doc, setDoc } from 'firebase/firestore'
 
+// Los datos salen del .env, igual que la app, para no apuntar sin querer
+// al proyecto equivocado. Ejecutar con: node --env-file=.env seed.js
 const firebaseConfig = {
-  apiKey: "AIzaSyDPhzA11knMP8mZCPDvcvrNsmILMZyopG4",
-  authDomain: "pruebas-hexa.firebaseapp.com",
-  projectId: "pruebas-hexa",
-  storageBucket: "pruebas-hexa.firebasestorage.app",
-  messagingSenderId: "498386050345",
-  appId: "1:498386050345:web:32e6852ea43974fc3aab38"
+  apiKey:            process.env.VITE_FIREBASE_API_KEY,
+  authDomain:        process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             process.env.VITE_FIREBASE_APP_ID,
 }
+
+if (!firebaseConfig.projectId) {
+  console.error('Falta el .env. Ejecutar con: node --env-file=.env seed.js')
+  process.exit(1)
+}
+
+console.log('Cargando datos en el proyecto:', firebaseConfig.projectId)
 
 const app = initializeApp(firebaseConfig)
 const db = getFirestore(app)

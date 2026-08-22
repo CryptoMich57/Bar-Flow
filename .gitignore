@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 _to_delete/
+
+# Variables de entorno (cada quien tiene las suyas)
+.env
+.env.local

@@ -1,8 +1,5 @@
 {
   "projects": {
-    "default": "qallariy-coffee",
-    "web qallariy": "qallariy-coffee"
-  },
-  "targets": {},
-  "etags": {}
+    "default": "barflow"
+  }
 }
