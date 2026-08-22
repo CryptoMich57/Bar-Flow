@@ -68,7 +68,8 @@ export default function CocinaPage() {
     const cargarHistorial = async () => {
       const hoy = new Date(); hoy.setHours(0,0,0,0)
       const todos = []
-      for (const num of NUMS_MESAS) {
+      const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
+      for (const num of numsMesas) {
         const snap = await getDocs(collection(db, 'mesas', `mesa_${num}`, 'pedidos'))
         snap.docs.forEach(d => {
           const data = { id: d.id, mesaId: num, ...d.data() }
@@ -93,7 +94,7 @@ export default function CocinaPage() {
       setHistorialDia([...todos, ...cerradosHoy])
     }
     cargarHistorial()
-  }, [autenticado, tab])
+  }, [autenticado, tab, cantidadMesas])
 
   // ── Detectar pedidos nuevos — sonido + notificación ─────────────────────────
   useEffect(() => {

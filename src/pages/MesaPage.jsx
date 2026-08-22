@@ -188,7 +188,7 @@ export default function MesaPage() {
     try {
       // Aplicar notas al carrito antes de confirmar
       if (esCarritoBloqueado) {
-        if (carritoLocal.length === 0) return
+        if (carritoLocal.length === 0) { setCargando(false); return }
         const itemsConNotas = carritoLocal.map(i => ({ ...i, nota: notasPorItem[i.id] || i.nota || '' }))
         await agregarPedidoExtra(mesaId, itemsConNotas, dispositivoId)
         setCarritoLocal([])

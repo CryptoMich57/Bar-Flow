@@ -30,6 +30,7 @@ export default function EncargadoPage() {
   const [pedidos, setPedidos]               = useState([])
   const [mensajes, setMensajes]             = useState([])
   const [llamadas, setLlamadas]             = useState([])
+  const [pedidosBarra, setPedidosBarra]     = useState({})
   const [carta, setCarta]                   = useState([])
   const [tab, setTab]                       = useState('mesas')
   const [textoMsg, setTextoMsg]             = useState('')
@@ -145,6 +146,13 @@ export default function EncargadoPage() {
             pedidosAnteriores.current[pedidoId] = true
           }
         })
+        // Cola de barra: items que prepara el encargado (cafeteria, licuados)
+        const barra = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(p => p.estado !== 'entregado')
+          .map(p => ({ ...p, items: (p.items || []).filter(i => i.destino === 'encargado') }))
+          .filter(p => p.items.length > 0)
+        setPedidosBarra(prev => ({ ...prev, [num]: barra }))
       })
     })
     return () => unsubs.forEach(u => u())
@@ -208,6 +216,23 @@ export default function EncargadoPage() {
     const pedido = pedidos.find(p => p.id === pedidoId)
     if (!pedido) return
     const items = pedido.items.map((item, i) => i === itemIdx ? { ...item, estado: nuevoEstado } : item)
+    const todoListo = items.every(i => i.estado === 'listo' || i.estado === 'entregado')
+    await updateDoc(pedidoRef, { items, estado: todoListo ? 'listo' : 'en_preparacion' })
+  }
+
+  // Cambia el estado de un item de barra. El indice que llega es el de la lista
+  // ya filtrada por destino, asi que hay que mapearlo al indice real del pedido.
+  const cambiarEstadoItemBarra = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
+    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const snap = await getDoc(pedidoRef)
+    if (!snap.exists()) return
+    const data = snap.data()
+    let realIdx = -1, count = 0
+    data.items.forEach((item, i) => {
+      if (item.destino === 'encargado') { if (count === itemIdx) realIdx = i; count++ }
+    })
+    if (realIdx === -1) return
+    const items = data.items.map((item, i) => i === realIdx ? { ...item, estado: nuevoEstado } : item)
     const todoListo = items.every(i => i.estado === 'listo' || i.estado === 'entregado')
     await updateDoc(pedidoRef, { items, estado: todoListo ? 'listo' : 'en_preparacion' })
   }
@@ -285,7 +310,6 @@ export default function EncargadoPage() {
 
   const guardarNuevoItem = async () => {
     if (!nuevoItem?.nombre || !nuevoItem?.precio) return
-    const id = nuevoItem.nombre.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'')
     await addDoc(collection(db, 'carta'), { ...nuevoItem, disponible: true, imagen_url: '' })
     setNuevoItem(null)
   }
@@ -307,11 +331,16 @@ export default function EncargadoPage() {
     m.estado === 'esperando_cuenta' || m.estado === 'esperando_preparacion'
   ).length
 
-  const llamadasPendientes = Object.values(mesas).reduce((acc, m) => acc, 0)
   const mesaData = mesaSeleccionada ? mesas[mesaSeleccionada] : null
+
+  // Cola de barra aplanada: [{ ...pedido, mesaId }]
+  const colaBarra = Object.entries(pedidosBarra)
+    .flatMap(([mesaId, lista]) => lista.map(p => ({ ...p, mesaId })))
+  const barraPendientes = colaBarra.filter(p => p.estado !== 'listo').length
 
   const TABS_SIDEBAR = [
     { key: 'mesas',        label: '🏠 Mesas' },
+    { key: 'barra',        label: '☕ Barra' },
     { key: 'carta',        label: '📋 Carta' },
     { key: 'estadisticas', label: '📊 Estadísticas' },
     { key: 'historial',    label: '🕐 Historial' },
@@ -390,7 +419,11 @@ export default function EncargadoPage() {
         <nav className={styles.sidebarNav}>
           {TABS_SIDEBAR.map(({ key, label }) => (
             <button key={key} className={`${styles.navBtn} ${tab === key ? styles.navActivo : ''}`}
-              onClick={() => setTab(key)}>{label}
+              onClick={() => setTab(key)}>
+              {label}
+              {key === 'barra' && barraPendientes > 0 && (
+                <span className={styles.alertBadge} style={{marginLeft:8}}>{barraPendientes}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -560,6 +593,48 @@ export default function EncargadoPage() {
               </div>
             ) : (
               <div className={styles.detalleVacio}><p>Seleccioná una mesa para ver el detalle</p></div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════ TAB BARRA ════════════════ */}
+        {tab === 'barra' && (
+          <div className={styles.cartaContainer}>
+            <h2 className={styles.sectionTitle}>☕ Barra — para preparar</h2>
+            <p className={styles.ajustesDesc} style={{marginTop:-12, marginBottom:20}}>
+              Cafetería, licuados y todo lo que prepara el encargado. Cuando marcás un ítem
+              como listo, el mozo lo ve en sus alertas para llevarlo a la mesa.
+            </p>
+            {colaBarra.length === 0 ? (
+              <p className={styles.empty}>No hay nada para preparar en la barra</p>
+            ) : (
+              colaBarra.map(p => (
+                <div key={p.mesaId + p.id} className={styles.pedidoCard}>
+                  <div className={styles.pedidoHeader}>
+                    <span className={styles.barraMesaTag}>Mesa {p.mesaId}</span>
+                    <span style={{color:'var(--text3)', fontSize:'0.78em'}}>
+                      {p.created_at?.toDate?.()?.toLocaleTimeString?.('es-AR', {hour:'2-digit', minute:'2-digit'}) || ''}
+                    </span>
+                  </div>
+                  {p.items.map((item, ii) => (
+                    <div key={ii} className={styles.itemRow}>
+                      <div className={styles.itemInfo2}>
+                        <span>{item.cantidad}× {item.nombre}</span>
+                        {item.nota && <span style={{color:'var(--yellow)', fontSize:'0.75em'}}>📝 {item.nota}</span>}
+                      </div>
+                      <div className={styles.itemEstados}>
+                        {['pendiente','en_preparacion','listo'].map(e => (
+                          <button key={e}
+                            className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
+                            onClick={() => cambiarEstadoItemBarra(p.mesaId, p.id, ii, e)}>
+                            {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
             )}
           </div>
         )}
