@@ -1,0 +1,104 @@
+/* ── LOGIN ───────────────────────────────────────────────────────────────── */
+.login {
+  min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: var(--bg); padding: 24px;
+}
+.loginBox { width: 100%; max-width: 320px; text-align: center; }
+.loginLogo { width: 72px; height: 72px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 16px rgba(200,169,110,0.4)); }
+.loginTitle { font-size: 1.6em; color: var(--gold); margin-bottom: 4px; }
+.loginSub { color: var(--text2); font-size: 0.9em; margin-bottom: 20px; }
+.inputError { border-color: var(--red) !important; }
+.errorMsg { color: var(--red); font-size: 0.82em; margin-top: 8px; }
+
+/* ── APP ─────────────────────────────────────────────────────────────────── */
+.app { min-height: 100dvh; background: var(--bg); display: flex; flex-direction: column; }
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; flex-wrap: wrap; gap: 10px;
+}
+.headerLeft { display: flex; align-items: center; gap: 10px; }
+.headerLogo { width: 32px; height: 32px; object-fit: contain; }
+.title { font-size: 1.1em; color: var(--gold); }
+.headerRight { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.countRed    { background: rgba(224,85,85,0.15);  color: var(--red);    border: 1px solid var(--red);    padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
+.countYellow { background: rgba(224,160,64,0.15); color: var(--yellow); border: 1px solid var(--yellow); padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
+.countGreen  { background: rgba(76,175,125,0.15); color: var(--green);  border: 1px solid var(--green);  padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
+
+.salirBtn {
+  padding: 6px 14px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text2); font-family: 'DM Sans', sans-serif; font-size: 0.8em; cursor: pointer;
+}
+
+/* ── TABS ────────────────────────────────────────────────────────────────── */
+.tabs { display: flex; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tab { flex: 1; padding: 12px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text2); font-family: 'DM Sans', sans-serif; font-size: 0.88em; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+.tabActivo { color: var(--gold); border-bottom-color: var(--gold); }
+
+/* ── COLUMNAS ────────────────────────────────────────────────────────────── */
+.columnas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 20px; flex: 1; align-items: start; }
+@media (max-width: 700px) { .columnas { grid-template-columns: 1fr; } }
+
+.columna { display: flex; flex-direction: column; gap: 10px; }
+.colHeader { padding: 10px 14px; border-radius: 8px; font-size: 0.82em; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.colRed    { background: rgba(224,85,85,0.15);  color: var(--red);    border: 1px solid var(--red); }
+.colYellow { background: rgba(224,160,64,0.15); color: var(--yellow); border: 1px solid var(--yellow); }
+.colGreen  { background: rgba(76,175,125,0.15); color: var(--green);  border: 1px solid var(--green); }
+.colVacio  { color: var(--text3); font-size: 0.82em; padding: 12px; text-align: center; }
+
+/* ── CARDS ───────────────────────────────────────────────────────────────── */
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.cardHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.mesaTag { background: var(--gold); color: #000; font-size: 0.78em; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+.hora { color: var(--text3); font-size: 0.75em; }
+
+.itemRow { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); gap: 8px; }
+.itemLeft { display: flex; align-items: flex-start; gap: 8px; flex: 1; }
+.cantidad { font-weight: 700; color: var(--gold); font-size: 1em; flex-shrink: 0; }
+.itemInfo { display: flex; flex-direction: column; gap: 2px; }
+.itemNombre { font-size: 0.9em; font-weight: 600; }
+.itemNota { font-size: 0.78em; color: var(--yellow); }
+
+.itemBtns { display: flex; gap: 6px; flex-shrink: 0; }
+.btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3); cursor: pointer; font-size: 1em; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.btnRed    { background: rgba(224,85,85,0.2);  border-color: var(--red); }
+.btnYellow { background: rgba(224,160,64,0.2); border-color: var(--yellow); }
+.btnGreen  { background: rgba(76,175,125,0.2); border-color: var(--green); }
+
+/* ── HISTORIAL ───────────────────────────────────────────────────────────── */
+.historial { padding: 20px; max-width: 700px; }
+.historialSub { color: var(--text3); font-size: 0.82em; margin-bottom: 16px; }
+.historialCard { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 10px; }
+.historialHeader { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.historialItem { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid var(--border); font-size: 0.85em; color: var(--text2); }
+
+/* ── VACÍO ───────────────────────────────────────────────────────────────── */
+.vacio { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); padding: 48px; }
+.vacio span { font-size: 3em; }
+
+/* ── BOTÓN AUDIO ─────────────────────────────────────────────────────────── */
+.audioBtn {
+  padding: 6px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.82em; cursor: pointer;
+  transition: all 0.2s;
+}
+.audioBtnOn {
+  background: rgba(76,175,125,0.15);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+/* ── FOOTER ──────────────────────────────────────────────────────────────── */
+.footer { text-align: center; padding: 16px; color: var(--text3); font-size: 0.72em; }
+.footerApp { text-align: center; padding: 10px; color: var(--text3); font-size: 0.7em; border-top: 1px solid var(--border); flex-shrink: 0; }

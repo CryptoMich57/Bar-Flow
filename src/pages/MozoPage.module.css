@@ -1,0 +1,167 @@
+
+/* ── LOGIN ───────────────────────────────────────────────────────────────── */
+.login {
+  min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: var(--bg); padding: 24px;
+}
+.loginBox { width: 100%; max-width: 360px; text-align: center; }
+.loginLogo { width: 72px; height: 72px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 16px rgba(200,169,110,0.4)); }
+.loginTitle { font-size: 1.6em; color: var(--gold); margin-bottom: 4px; }
+.loginSub { color: var(--text2); font-size: 0.9em; margin-bottom: 24px; }
+.mozosBtns { display: flex; flex-direction: column; gap: 10px; }
+.mozoBtn {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-family: 'DM Sans', sans-serif;
+  font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.mozoBtn:hover { border-color: var(--gold); background: rgba(200,169,110,0.08); }
+.mozoEmoji { font-size: 1.4em; }
+
+/* ── APP ─────────────────────────────────────────────────────────────────── */
+.app { min-height: 100dvh; background: var(--bg); display: flex; flex-direction: column; }
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.headerLeft { display: flex; align-items: center; gap: 10px; }
+.headerLogo { width: 32px; height: 32px; object-fit: contain; }
+.headerNombre { display: block; font-weight: 700; font-size: 0.95em; }
+.headerRol { display: block; font-size: 0.72em; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; }
+.alertBadge {
+  background: var(--red); color: #fff;
+  font-size: 0.75em; font-weight: 700;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.cambiarBtn {
+  padding: 6px 12px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text2); font-family: 'DM Sans', sans-serif;
+  font-size: 0.78em; cursor: pointer;
+}
+
+/* ── TABS ────────────────────────────────────────────────────────────────── */
+.tabs { display: flex; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tab {
+  flex: 1; padding: 12px 8px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--text2); font-family: 'DM Sans', sans-serif;
+  font-size: 0.8em; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  white-space: nowrap;
+}
+.tabActivo { color: var(--gold); border-bottom-color: var(--gold); }
+.tabBadge {
+  background: var(--red); color: #fff;
+  font-size: 0.7em; font-weight: 700;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ── CONTENT ─────────────────────────────────────────────────────────────── */
+.content { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 100px; display: flex; flex-direction: column; gap: 20px; }
+
+.vacio { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text3); text-align: center; padding: 48px; }
+.vacio span { font-size: 3em; }
+
+.seccion { font-size: 0.82em; text-transform: uppercase; letter-spacing: 1px; color: var(--text3); margin-bottom: 10px; }
+
+/* ── CARDS ───────────────────────────────────────────────────────────────── */
+.card { border-radius: var(--radius); padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); }
+.cardRed    { background: rgba(224,85,85,0.08);  border-color: var(--red); }
+.cardGreen  { background: rgba(76,175,125,0.08); border-color: var(--green); }
+.cardYellow { background: rgba(224,160,64,0.08); border-color: var(--yellow); }
+.cardBlue   { background: rgba(46,109,164,0.08); border-color: #2e6da4; }
+
+.cardHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.mesaTag { background: var(--gold); color: #000; font-size: 0.78em; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+.metodoPago { font-size: 0.85em; font-weight: 600; }
+.cuentaInfo { display: flex; flex-direction: column; gap: 4px; font-size: 0.88em; color: var(--text2); margin-bottom: 10px; }
+
+.entregarBtn {
+  padding: 6px 12px; background: rgba(76,175,125,0.2);
+  border: 1px solid var(--green); border-radius: 8px;
+  color: var(--green); font-family: 'DM Sans', sans-serif;
+  font-size: 0.75em; font-weight: 600; cursor: pointer;
+}
+.resolverBtn {
+  padding: 6px 12px; background: rgba(224,160,64,0.15);
+  border: 1px solid var(--yellow); border-radius: 8px;
+  color: var(--yellow); font-family: 'DM Sans', sans-serif;
+  font-size: 0.75em; font-weight: 600; cursor: pointer;
+}
+.cobradoBtn {
+  width: 100%; padding: 10px;
+  background: rgba(76,175,125,0.15);
+  border: 1px solid var(--green); border-radius: 8px;
+  color: var(--green); font-family: 'DM Sans', sans-serif;
+  font-size: 0.82em; font-weight: 600; cursor: pointer; margin-top: 8px;
+}
+
+.itemRow { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.05); font-size: 0.85em; gap: 8px; }
+.itemLeft { display: flex; align-items: center; gap: 8px; flex: 1; }
+.cantidad { font-weight: 700; color: var(--gold); flex-shrink: 0; }
+.itemBtns { display: flex; gap: 6px; }
+.btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3); cursor: pointer; font-size: 0.9em; display: flex; align-items: center; justify-content: center; }
+.btnYellow { background: rgba(224,160,64,0.2); border-color: var(--yellow); }
+.btnGreen  { background: rgba(76,175,125,0.2); border-color: var(--green); }
+
+/* ── MIS MESAS ───────────────────────────────────────────────────────────── */
+.mesaDetalle { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+.mesaDetalleHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.pedidoResumen { padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+
+/* ── TOMAR PEDIDO ────────────────────────────────────────────────────────── */
+.mesaSelector { margin-bottom: 16px; }
+.inputLabel { font-size: 0.82em; color: var(--text2); margin-bottom: 8px; display: block; }
+.mesasBtns { display: flex; flex-wrap: wrap; gap: 8px; }
+.mesaNumBtn {
+  width: 44px; height: 44px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--bg2);
+  color: var(--text2); font-family: 'DM Sans', sans-serif;
+  font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.mesaNumActivo { background: var(--gold); color: #000; border-color: var(--gold); }
+
+.categorias { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 4px; }
+.categorias::-webkit-scrollbar { display: none; }
+.catBtn { padding: 8px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg3); color: var(--text2); font-family: 'DM Sans', sans-serif; font-size: 0.8em; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+.catActivo { background: var(--gold); color: #000; border-color: var(--gold); font-weight: 600; }
+
+.itemsCarta { display: flex; flex-direction: column; gap: 10px; }
+.itemCartaCard { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.itemCartaInfo { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.itemNombre { font-weight: 600; font-size: 0.9em; }
+.itemPrecio { color: var(--gold); font-size: 0.85em; font-weight: 600; }
+.notaInput { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78em; outline: none; margin-top: 4px; width: 100%; }
+.notaInput::placeholder { color: var(--text3); }
+.itemControles { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.addBtn { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--gold); background: transparent; color: var(--gold); font-size: 1.2em; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.contBtn { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg3); color: var(--text); cursor: pointer; font-size: 1em; display: flex; align-items: center; justify-content: center; }
+.contNum { font-weight: 700; min-width: 20px; text-align: center; color: var(--gold); }
+
+.carritoFloat { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2); border-top: 1px solid var(--border); padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
+.carritoInfo { display: flex; justify-content: space-between; font-size: 0.85em; color: var(--text2); padding: 0 4px; }
+
+/* ── BOTÓN AUDIO ─────────────────────────────────────────────────────────── */
+.audioBtn {
+  padding: 6px 12px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text3); font-family: 'DM Sans', sans-serif;
+  font-size: 0.82em; cursor: pointer; transition: all 0.2s;
+}
+.audioBtnOn {
+  background: rgba(76,175,125,0.15);
+  border-color: var(--green); color: var(--green);
+}
+
+/* ── FOOTER ──────────────────────────────────────────────────────────────── */
+.footer { text-align: center; padding: 16px; color: var(--text3); font-size: 0.72em; }
+.footerApp { text-align: center; padding: 10px; color: var(--text3); font-size: 0.7em; border-top: 1px solid var(--border); flex-shrink: 0; }

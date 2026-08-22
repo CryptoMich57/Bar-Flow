@@ -1,0 +1,671 @@
+import { useState, useEffect, useRef } from 'react'
+import { useParams } from 'react-router-dom'
+import {
+  suscribirMesa, ocuparMesa, agregarAlCarrito, quitarDelCarrito,
+  confirmarPedido, agregarPedidoExtra, suscribirPedidos,
+  suscribirCarta, pedirCuenta, enviarMensaje, suscribirMensajes
+} from '../firebase/mesa'
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { db } from '../firebase/config'
+import { getCopyright, getTextos, getNombreBar, getLogo } from '../config'
+import { cargarConfiguracion } from '../firebase/configuracion'
+import styles from './MesaPage.module.css'
+import { sonidoMensaje, activarAudio } from '../utils/sonidos'
+
+// ── Persistencia de sesión ───────────────────────────────────────────────────
+const getDispositivoId = () => {
+  let id = localStorage.getItem('dispositivo_id')
+  if (!id) { id = 'disp_' + Math.random().toString(36).slice(2); localStorage.setItem('dispositivo_id', id) }
+  return id
+}
+const guardarSesion = (mesaId, nombre, personas) => {
+  localStorage.setItem('sesion_mesa', JSON.stringify({ mesaId, nombre, personas, ts: Date.now() }))
+}
+const cargarSesion = (mesaId) => {
+  try {
+    const s = JSON.parse(localStorage.getItem('sesion_mesa') || '{}')
+    // Solo recuperar si es la misma mesa y no pasaron más de 4 horas
+    if (s.mesaId === mesaId && Date.now() - s.ts < 4 * 60 * 60 * 1000) return s
+  } catch {}
+  return null
+}
+const borrarSesion = () => localStorage.removeItem('sesion_mesa')
+
+const CATEGORIAS = {
+  promocion:        { label: 'Promo del día', emoji: '🌟' },
+  comida:           { label: 'Comidas',       emoji: '🍽️' },
+  bebida_preparada: { label: 'Cafetería',     emoji: '☕' },
+  bebida_simple:    { label: 'Bebidas',       emoji: '🥤' },
+  postre:           { label: 'Postres',       emoji: '🍰' },
+}
+
+export default function MesaPage() {
+  const { mesaId } = useParams()
+  const dispositivoId = getDispositivoId()
+  const textos = getTextos()
+  const [configApp, setConfigApp] = useState(null)
+
+  useEffect(() => {
+    cargarConfiguracion().then(setConfigApp)
+  }, [])
+
+  // Recuperar sesión guardada
+  const sesionGuardada = cargarSesion(mesaId)
+
+  const [paso, setPaso]             = useState(sesionGuardada ? 'carta' : 'bienvenida')
+  const [nombre, setNombre]         = useState(sesionGuardada?.nombre || '')
+  const [personas, setPersonas]     = useState(sesionGuardada?.personas || 1)
+  const [mesa, setMesa]             = useState(null)
+  const [carta, setCarta]           = useState([])
+  const [pedidos, setPedidos]       = useState([])
+  const [mensajes, setMensajes]     = useState([])
+  const [categoriaActiva, setCategoriaActiva] = useState('comida')
+  const [carritoLocal, setCarritoLocal] = useState([])
+  const [notasPorItem, setNotasPorItem] = useState({})
+  const [textoMensaje, setTextoMensaje] = useState('')
+  const [metodoPago, setMetodoPago] = useState(null)
+  const [propina, setPropina]       = useState(0)
+  const [propinaCustom, setPropinaCustom] = useState('')
+  const [abonaCon, setAbonaCon]     = useState('')
+  const [cargando, setCargando]     = useState(false)
+  const [error, setError]           = useState(null)
+  const [tab, setTab]               = useState('carta')
+  const [llamadoMozo, setLlamadoMozo] = useState(false)
+  const [notaMozo, setNotaMozo]     = useState('')
+  const [showLlamarMozo, setShowLlamarMozo] = useState(false)
+  const mensajesRef = useRef(null)
+  const mensajesAnteriores = useRef({})
+
+  // Si hay sesión guardada, registrar dispositivo en firebase al montar
+  useEffect(() => {
+    if (sesionGuardada && paso === 'carta') {
+      ocuparMesa(mesaId, sesionGuardada.nombre, dispositivoId, sesionGuardada.personas)
+        .catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
+    if (paso === 'bienvenida' || paso === 'nombre') return
+    const unsub = suscribirMesa(mesaId, (data) => {
+      setMesa(data)
+      // Si el encargado liberó la mesa, limpiar sesión y mostrar despedida
+      if (data?.estado === 'libre' && paso === 'carta') {
+        borrarSesion()
+        setPaso('pagado')
+      }
+    })
+    return unsub
+  }, [mesaId, paso])
+
+  useEffect(() => {
+    if (paso === 'bienvenida' || paso === 'nombre') return
+    const unsub = suscribirPedidos(mesaId, setPedidos)
+    return unsub
+  }, [mesaId, paso])
+
+  useEffect(() => {
+    const unsub = suscribirCarta(setCarta)
+    return unsub
+  }, [])
+
+  useEffect(() => {
+    if (paso === 'bienvenida' || paso === 'nombre') return
+    const unsub = suscribirMensajes(mesaId, (msgs) => {
+      const hayNuevo = msgs.some(m => !mensajesAnteriores.current[m.id] && m.autor !== nombre)
+      if (hayNuevo && Object.keys(mensajesAnteriores.current).length > 0) sonidoMensaje()
+      const map = {}; msgs.forEach(m => map[m.id] = true)
+      mensajesAnteriores.current = map
+      setMensajes(msgs)
+      setTimeout(() => mensajesRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 100)
+    })
+    return unsub
+  }, [mesaId, paso])
+
+  const handleEntrarNombre = async () => {
+    if (!nombre.trim()) return
+    setCargando(true)
+    setError(null)
+    try {
+      await ocuparMesa(mesaId, nombre.trim(), dispositivoId, personas)
+      guardarSesion(mesaId, nombre.trim(), personas)
+      setPaso('carta')
+    } catch (e) { setError('No se pudo conectar con la mesa. Intentá de nuevo.') }
+    setCargando(false)
+  }
+
+  // ── Llamar al mozo ────────────────────────────────────────────────────────
+  const handleLlamarMozo = async () => {
+    if (!notaMozo.trim()) return
+    setCargando(true)
+    try {
+      await addDoc(collection(db, 'mesas', `mesa_${mesaId}`, 'llamadas'), {
+        nota: notaMozo.trim(), cliente: nombre,
+        estado: 'pendiente', created_at: serverTimestamp(),
+      })
+      setLlamadoMozo(true); setNotaMozo(''); setShowLlamarMozo(false)
+      setTimeout(() => setLlamadoMozo(false), 5000)
+    } catch (e) { setError('No se pudo enviar.') }
+    setCargando(false)
+  }
+
+  // ── Carrito ───────────────────────────────────────────────────────────────
+  const esCarritoBloqueado = mesa?.carrito_bloqueado
+
+  const agregarItem = async (item) => {
+    const nota = notasPorItem[item.id] || ''
+    if (esCarritoBloqueado) {
+      setCarritoLocal(prev => {
+        const existe = prev.find(i => i.id === item.id)
+        if (existe) return prev.map(i => i.id === item.id ? { ...i, cantidad: i.cantidad + 1 } : i)
+        return [...prev, { ...item, cantidad: 1, nota }]
+      })
+    } else {
+      try { await agregarAlCarrito(mesaId, { ...item, nota }) }
+      catch (e) { setError(e.message) }
+    }
+  }
+
+  const quitarItem = async (itemId) => {
+    if (esCarritoBloqueado) {
+      setCarritoLocal(prev =>
+        prev.map(i => i.id === itemId ? { ...i, cantidad: i.cantidad - 1 } : i).filter(i => i.cantidad > 0)
+      )
+    } else {
+      await quitarDelCarrito(mesaId, itemId)
+    }
+  }
+
+  const getCantidadItem = (itemId) => {
+    if (esCarritoBloqueado) return carritoLocal.find(i => i.id === itemId)?.cantidad || 0
+    return mesa?.carrito?.find(i => i.id === itemId)?.cantidad || 0
+  }
+
+  const carrito = esCarritoBloqueado ? carritoLocal : (mesa?.carrito || [])
+  const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
+
+  const handleConfirmar = async () => {
+    setCargando(true); setError(null)
+    try {
+      // Aplicar notas al carrito antes de confirmar
+      if (esCarritoBloqueado) {
+        if (carritoLocal.length === 0) return
+        const itemsConNotas = carritoLocal.map(i => ({ ...i, nota: notasPorItem[i.id] || i.nota || '' }))
+        await agregarPedidoExtra(mesaId, itemsConNotas, dispositivoId)
+        setCarritoLocal([])
+      } else {
+        await confirmarPedido(mesaId, dispositivoId)
+      }
+      setNotasPorItem({})
+    } catch (e) { setError(e.message) }
+    setCargando(false)
+  }
+
+  // ── Cuenta ────────────────────────────────────────────────────────────────
+  const totalFinal = mesa?.total_acumulado || 0
+  const calcularPropina = () => {
+    if (propina === 'custom') return parseFloat(propinaCustom) || 0
+    if (propina === 0) return 0
+    return Math.round(totalFinal * propina)
+  }
+
+  const handlePedirCuenta = async () => {
+    if (!metodoPago) return
+    setCargando(true)
+    try {
+      await pedirCuenta(mesaId, metodoPago, calcularPropina(), metodoPago === 'efectivo' ? abonaCon : null)
+    } catch (e) { setError(e.message) }
+    setCargando(false)
+  }
+
+  const handleEnviarMensaje = async () => {
+    if (!textoMensaje.trim()) return
+    await enviarMensaje(mesaId, textoMensaje.trim(), nombre)
+    setTextoMensaje('')
+  }
+
+  const transferencia = configApp?.transferencia || {}
+
+  // ── BIENVENIDA ────────────────────────────────────────────────────────────
+  if (paso === 'bienvenida') return (
+    <div className={styles.splash}>
+      <div className={styles.splashBg} />
+      <div className={styles.splashParticles}>
+        {[...Array(12)].map((_, i) => <div key={i} className={styles.particle} style={{ '--i': i }} />)}
+      </div>
+      <div className={styles.splashContent}>
+        <div className={styles.splashLogoWrap}>
+          <img src={getLogo()} alt="Logo" className={styles.splashLogo} onError={e => e.target.style.display='none'} />
+        </div>
+        <h1 className={styles.splashTitle}>{textos.bienvenida.titulo}</h1>
+        <p className={styles.splashBar}>{getNombreBar()}</p>
+        <p className={styles.splashMesa}>Mesa {mesaId}</p>
+        <p className={styles.splashText}>{textos.bienvenida.descripcion}</p>
+        <button className={`btn btn-gold ${styles.splashBtn}`} onClick={() => { setPaso('nombre'); activarAudio() }}>
+          {textos.bienvenida.boton}
+        </button>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
+
+  // ── NOMBRE ────────────────────────────────────────────────────────────────
+  if (paso === 'nombre') return (
+    <div className={styles.centrado}>
+      <div className={styles.nombreBox}>
+        <img src={getLogo()} alt="Logo" className={styles.miniLogo} onError={e => e.target.style.display='none'} />
+        <h2 className={styles.nombreTitle}>{textos.nombre.titulo}</h2>
+        <p className={styles.nombreSub}>Mesa {mesaId} · {getNombreBar()}</p>
+        <label className={styles.inputLabel}>Tu nombre o el del grupo</label>
+        <input className="input" placeholder="Ej: Mesa de Juan" value={nombre}
+          onChange={e => setNombre(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEntrarNombre()} autoFocus />
+        <label className={styles.inputLabel} style={{marginTop:16}}>¿Cuántas personas son?</label>
+        <div className={styles.personasRow}>
+          {[1,2,3,4,5,6,7,8].map(n => (
+            <button key={n} className={`${styles.personaBtn} ${personas===n?styles.personaBtnActivo:''}`}
+              onClick={() => setPersonas(n)}>{n}</button>
+          ))}
+        </div>
+        <p className={styles.personasHint}>Así preparamos los cubiertos y cada uno puede elegir su pedido.</p>
+        {error && <p className={styles.errorMsg}>{error}</p>}
+        <button className="btn btn-gold" style={{marginTop:20}} onClick={handleEntrarNombre} disabled={!nombre.trim()||cargando}>
+          {cargando ? 'Conectando...' : textos.nombre.boton}
+        </button>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
+
+  // ── DESPEDIDA ─────────────────────────────────────────────────────────────
+  if (paso === 'pagado') return (
+    <div className={styles.centrado}>
+      <div className={styles.nombreBox} style={{textAlign:'center'}}>
+        <div style={{fontSize:56,marginBottom:16}}>{textos.despedida.emoji}</div>
+        <h2 style={{color:'var(--gold)'}}>{textos.despedida.titulo}</h2>
+        <p style={{color:'var(--text2)',marginTop:12,lineHeight:1.7}}>{textos.despedida.mensaje}</p>
+        <p style={{color:'var(--text3)',marginTop:16,fontSize:'0.85em'}}>{getNombreBar()}</p>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
+
+  // ── VISTA PRINCIPAL ───────────────────────────────────────────────────────
+  const cartaFiltrada = carta.filter(i => i.categoria === categoriaActiva)
+
+  return (
+    <div className={styles.app}>
+
+      <header className={styles.header}>
+        <div className={styles.headerLeft}>
+          <img src={getLogo()} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
+          <div>
+            <span className={styles.mesaLabel}>Mesa {mesaId}</span>
+            <span className={styles.nombreLabel}>{nombre}</span>
+          </div>
+        </div>
+        <div className={styles.headerRight}>
+          <button className={`${styles.llamarBtn} ${llamadoMozo?styles.llamarEnviado:''}`}
+            onClick={() => setShowLlamarMozo(true)}>
+            {llamadoMozo ? '✓ Enviado' : '✋'}
+          </button>
+          {mesa?.total_acumulado > 0 && mesa?.estado !== 'esperando_cuenta' && (
+            <span className={styles.totalHeader}>${mesa.total_acumulado.toLocaleString()}</span>
+          )}
+          {mesa?.estado === 'esperando_cuenta' && <span className="badge badge-yellow">Cuenta en camino</span>}
+        </div>
+      </header>
+
+      {/* Modal llamar mozo */}
+      {showLlamarMozo && (
+        <div className={styles.modalOverlay} onClick={() => setShowLlamarMozo(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 className={styles.modalTitle}>✋ Llamar al mozo</h3>
+            <p className={styles.modalSub}>¿Qué necesitás?</p>
+            <div className={styles.notasRapidas}>
+              {['Me falta hielo','Me falta un cubierto','Me falta una servilleta','Tengo una consulta'].map(nota => (
+                <button key={nota} className={styles.notaRapida} onClick={() => setNotaMozo(nota)}>{nota}</button>
+              ))}
+            </div>
+            <input className="input" style={{marginTop:10}} placeholder="O escribí lo que necesitás..."
+              value={notaMozo} onChange={e => setNotaMozo(e.target.value)} />
+            <div style={{display:'flex',gap:8,marginTop:12}}>
+              <button className="btn btn-ghost" style={{flex:1}} onClick={() => setShowLlamarMozo(false)}>Cancelar</button>
+              <button className="btn btn-gold" style={{flex:2}} onClick={handleLlamarMozo} disabled={!notaMozo.trim()||cargando}>
+                Llamar ✋
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mesa?.dispositivos?.length > 1 && !esCarritoBloqueado && (
+        <div className={styles.alertaMulti}>
+          ⚠️ Hay {mesa.dispositivos.length} dispositivos en esta mesa. Coordiná el pedido.
+        </div>
+      )}
+
+      <nav className={styles.tabs}>
+        {[
+          {key:'carta',    label:'Carta',    emoji:'📋'},
+          {key:'pedidos',  label:'Pedidos',  emoji:'🧾'},
+          {key:'mensajes', label:'Chat',     emoji:'💬'},
+          {key:'cuenta',   label:'Cuenta',   emoji:'💳'},
+        ].map(t => (
+          <button key={t.key} className={`${styles.tab} ${tab===t.key?styles.tabActivo:''}`} onClick={() => setTab(t.key)}>
+            {t.emoji} {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* ── CARTA ────────────────────────────────────────────────────────── */}
+      {tab === 'carta' && (
+        <div className={styles.content}>
+          <div className={styles.categorias}>
+            {Object.entries(CATEGORIAS).map(([key, val]) => (
+              <button key={key} className={`${styles.catBtn} ${categoriaActiva===key?styles.catActivo:''}`}
+                onClick={() => setCategoriaActiva(key)}>
+                {val.emoji} {val.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Nota guía carta */}
+          {carrito.length === 0 && !esCarritoBloqueado && (
+            <div className={styles.guiaBox}>
+              <span className={styles.guiaEmoji}>👆</span>
+              <p>Tocá el <strong>+</strong> para agregar lo que querés. Cuando termines, confirmá tu pedido.</p>
+            </div>
+          )}
+
+          {/* Carrito actual (antes de confirmar) */}
+          {!esCarritoBloqueado && carrito.length > 0 && (
+            <div className={styles.carritoPreview}>
+              <p className={styles.carritoPreviewTitle}>🛒 Tu pedido actual</p>
+              {carrito.map(item => (
+                <div key={item.id} className={styles.carritoPreviewItem}>
+                  <div className={styles.carritoPreviewInfo}>
+                    <span>{item.nombre}</span>
+                    <input
+                      className={styles.notaInput}
+                      placeholder="Nota (ej: sin tomate)..."
+                      value={notasPorItem[item.id] || ''}
+                      onChange={e => setNotasPorItem(prev => ({ ...prev, [item.id]: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.itemControles}>
+                    <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                    <span className={styles.contNum}>{item.cantidad}</span>
+                    <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                  </div>
+                  <span className={styles.carritoItemPrecio}>${(item.precio*item.cantidad).toLocaleString()}</span>
+                </div>
+              ))}
+              <div className={styles.carritoPreviewTotal}>
+                <span>Total</span>
+                <span>${totalCarrito.toLocaleString()}</span>
+              </div>
+              {error && <p className={styles.errorMsg}>{error}</p>}
+              <button className="btn btn-gold" style={{width:'100%',marginTop:10}} onClick={handleConfirmar} disabled={cargando}>
+                {cargando ? 'Enviando...' : '✅ Confirmar pedido'}
+              </button>
+            </div>
+          )}
+
+          {/* Carrito post-confirmación */}
+          {esCarritoBloqueado && carritoLocal.length > 0 && (
+            <div className={styles.carritoPreview}>
+              <p className={styles.carritoPreviewTitle}>➕ Agregar al pedido</p>
+              {carritoLocal.map(item => (
+                <div key={item.id} className={styles.carritoPreviewItem}>
+                  <div className={styles.carritoPreviewInfo}>
+                    <span>{item.nombre}</span>
+                    <input
+                      className={styles.notaInput}
+                      placeholder="Nota (ej: sin tomate)..."
+                      value={notasPorItem[item.id] || item.nota || ''}
+                      onChange={e => setNotasPorItem(prev => ({ ...prev, [item.id]: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.itemControles}>
+                    <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                    <span className={styles.contNum}>{item.cantidad}</span>
+                    <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                  </div>
+                  <span className={styles.carritoItemPrecio}>${(item.precio*item.cantidad).toLocaleString()}</span>
+                </div>
+              ))}
+              {error && <p className={styles.errorMsg}>{error}</p>}
+              <button className="btn btn-gold" style={{width:'100%',marginTop:10}} onClick={handleConfirmar} disabled={cargando}>
+                {cargando ? 'Enviando...' : '➕ Agregar al pedido'}
+              </button>
+            </div>
+          )}
+
+          <div className={styles.items}>
+            {cartaFiltrada.map(item => {
+              const cant = getCantidadItem(item.id)
+              return (
+                <div key={item.id} className={styles.itemCard}>
+                  <div className={styles.itemInfo}>
+                    <span className={styles.itemNombre}>{item.nombre}</span>
+                    <span className={styles.itemDesc}>{item.descripcion}</span>
+                    <span className={styles.itemPrecio}>${item.precio.toLocaleString()}</span>
+                  </div>
+                  <div className={styles.itemControles}>
+                    {cant > 0 ? (
+                      <>
+                        <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                        <span className={styles.contNum}>{cant}</span>
+                        <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                      </>
+                    ) : (
+                      <button className={styles.addBtn} onClick={() => agregarItem(item)}>+</button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── PEDIDOS ──────────────────────────────────────────────────────── */}
+      {tab === 'pedidos' && (
+        <div className={styles.content}>
+          <div className={styles.guiaBox} style={{marginBottom:12}}>
+            <span className={styles.guiaEmoji}>🧾</span>
+            <p>Acá ves el estado de tus pedidos en tiempo real. <strong>⏳ Pendiente → 👨‍🍳 Preparando → ✅ Listo → 🎉 Entregado</strong></p>
+          </div>
+          {pedidos.length === 0
+            ? <div className={styles.empty}><p>Todavía no hay pedidos.</p></div>
+            : pedidos.map((p, i) => (
+              <div key={p.id} className={styles.pedidoCard}>
+                <div className={styles.pedidoHeader}>
+                  <span>Pedido #{i+1}</span>
+                  <span className={`badge badge-${p.estado==='entregado'?'green':p.estado==='listo'?'yellow':'gold'}`}>
+                    {p.estado==='pendiente'&&'⏳ Pendiente'}
+                    {p.estado==='en_preparacion'&&'👨‍🍳 Preparando'}
+                    {p.estado==='listo'&&'✅ Listo para llevar'}
+                    {p.estado==='entregado'&&'🎉 Entregado'}
+                  </span>
+                </div>
+                {p.items.map((item, j) => (
+                  <div key={j} className={styles.pedidoItem}>
+                    <div>
+                      <span>{item.cantidad}× {item.nombre}</span>
+                      {item.nota && <p style={{color:'var(--yellow)',fontSize:'0.78em',marginTop:2}}>📝 {item.nota}</p>}
+                    </div>
+                    <span>${(item.precio*item.cantidad).toLocaleString()}</span>
+                  </div>
+                ))}
+                <div className={styles.pedidoTotal}>Total: ${p.total?.toLocaleString()}</div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {/* ── CHAT ─────────────────────────────────────────────────────────── */}
+      {tab === 'mensajes' && (
+        <div className={styles.chatContainer}>
+          <div className={styles.chatMensajes} ref={mensajesRef}>
+            {mensajes.length === 0 && (
+              <div style={{textAlign:'center',padding:24}}>
+                <p style={{fontSize:'1.5em',marginBottom:8}}>💬</p>
+                <p style={{color:'var(--text2)',fontSize:'0.88em',fontWeight:600,marginBottom:4}}>Chateá con el encargado</p>
+                <p style={{color:'var(--text3)',fontSize:'0.82em',lineHeight:1.6}}>
+                  ¿Necesitás algo? ¿Tenés alguna consulta?<br/>Escribinos y te respondemos enseguida.
+                </p>
+              </div>
+            )}
+            {mensajes.map(m => (
+              <div key={m.id} className={`${styles.msg} ${m.autor===nombre?styles.msgPropio:styles.msgOtro}`}>
+                <span className={styles.msgAutor}>{m.autor===nombre?'Vos':'Encargado'}</span>
+                <span className={styles.msgTexto}>{m.texto}</span>
+              </div>
+            ))}
+          </div>
+          <div className={styles.chatInput}>
+            <input className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
+              placeholder="Escribí un mensaje..." value={textoMensaje}
+              onChange={e => setTextoMensaje(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEnviarMensaje()} />
+            <button className={styles.chatSend} onClick={handleEnviarMensaje} disabled={!textoMensaje.trim()}>→</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── CUENTA ───────────────────────────────────────────────────────── */}
+      {tab === 'cuenta' && (
+        <div className={styles.content}>
+          {pedidos.length === 0
+            ? <div className={styles.empty}><p>Todavía no hay nada para mostrar.</p></div>
+            : (
+            <>
+              <div className={styles.ticket}>
+                <div className={styles.ticketHeader}>
+                  <span>{getNombreBar()}</span><span>Mesa {mesaId} · {nombre}</span>
+                </div>
+                <div className="divider" />
+                {pedidos.map((p, i) => (
+                  <div key={p.id}>
+                    <p style={{color:'var(--text3)',fontSize:'0.78em',marginBottom:6}}>Pedido #{i+1}</p>
+                    {p.items.map((item, j) => (
+                      <div key={j} className={styles.ticketRow}>
+                        <div>
+                          <span>{item.cantidad}× {item.nombre}</span>
+                          {item.nota && <p style={{color:'var(--text3)',fontSize:'0.75em'}}>{item.nota}</p>}
+                        </div>
+                        <span>${(item.precio*item.cantidad).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="divider" />
+                <div className={styles.ticketTotal}><span>Subtotal</span><span>${totalFinal.toLocaleString()}</span></div>
+                {calcularPropina() > 0 && (
+                  <div className={styles.ticketRow}>
+                    <span style={{color:'var(--text2)'}}>Propina</span>
+                    <span style={{color:'var(--green)'}}>+${calcularPropina().toLocaleString()}</span>
+                  </div>
+                )}
+                <div className={styles.ticketFinal}>
+                  <span>TOTAL</span>
+                  <span>${(totalFinal+calcularPropina()).toLocaleString()}</span>
+                </div>
+              </div>
+
+              {mesa?.estado !== 'esperando_cuenta' && mesa?.estado !== 'cuenta_cobrada' && (
+                <>
+                  <h3 className={styles.seccionLabel}>¿Querés dejar propina?</h3>
+                  <div className={styles.propinaOpciones}>
+                    {[0,0.1,0.15,'custom'].map(op => (
+                      <button key={op} className={`${styles.propinaBtn} ${propina===op?styles.propinaBtnActivo:''}`}
+                        onClick={() => setPropina(op)}>
+                        {op===0?'Sin propina':op==='custom'?'Otra':`${op*100}%`}
+                      </button>
+                    ))}
+                  </div>
+                  {propina==='custom' && (
+                    <input className="input" style={{marginTop:10}} placeholder="Monto de propina..."
+                      type="number" value={propinaCustom} onChange={e => setPropinaCustom(e.target.value)} />
+                  )}
+
+                  <h3 className={styles.seccionLabel}>Método de pago</h3>
+                  <div className={styles.pagoOpciones}>
+                    {['efectivo','tarjeta','transferencia'].map(m => (
+                      <button key={m} className={`${styles.pagoBtn} ${metodoPago===m?styles.pagoBtnActivo:''}`}
+                        onClick={() => setMetodoPago(m)}>
+                        {m==='efectivo'?'💵 Efectivo':m==='tarjeta'?'💳 Tarjeta':'📲 Transferencia'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Efectivo: preguntar con cuánto abona */}
+                  {metodoPago === 'efectivo' && (
+                    <div className={styles.transferenciaBox} style={{marginTop:10}}>
+                      <p className={styles.transferenciaTitle}>¿Con cuánto abonás?</p>
+                      <p style={{color:'var(--text2)',fontSize:'0.82em',marginBottom:8}}>
+                        Total a pagar: <strong>${(totalFinal+calcularPropina()).toLocaleString()}</strong>
+                      </p>
+                      <input className="input" type="number" placeholder="Ej: 5000"
+                        value={abonaCon} onChange={e => setAbonaCon(e.target.value)} />
+                      {abonaCon && parseFloat(abonaCon) >= totalFinal + calcularPropina() && (
+                        <p style={{color:'var(--green)',fontSize:'0.85em',marginTop:6}}>
+                          Vuelto: ${(parseFloat(abonaCon) - totalFinal - calcularPropina()).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Transferencia: datos bancarios */}
+                  {metodoPago === 'transferencia' && (
+                    <div className={styles.transferenciaBox}>
+                      <p className={styles.transferenciaTitle}>📲 Realizá la transferencia y esperá la confirmación</p>
+                      <p style={{color:'var(--text2)',fontSize:'0.8em',marginBottom:10,lineHeight:1.5}}>
+                        Una vez que transferís, el encargado confirma el pago y te avisamos por acá.
+                      </p>
+                      <div className={styles.transferenciaRow}><span>Titular</span><strong>{transferencia.titular}</strong></div>
+                      <div className={styles.transferenciaRow}><span>Banco</span><strong>{transferencia.banco}</strong></div>
+                      <div className={styles.transferenciaRow}><span>CBU</span><strong>{transferencia.cbu}</strong></div>
+                      <div className={styles.transferenciaRow}><span>Alias</span><strong>{transferencia.alias}</strong></div>
+                    </div>
+                  )}
+
+                  {error && <p className={styles.errorMsg}>{error}</p>}
+                  <button className="btn btn-gold" style={{marginTop:20}} onClick={handlePedirCuenta}
+                    disabled={!metodoPago||cargando}>
+                    {cargando ? 'Enviando...' : '🧾 Pedir la cuenta'}
+                  </button>
+                </>
+              )}
+
+              {mesa?.estado === 'esperando_cuenta' && (
+                <div className={styles.cuentaEnCamino}>
+                  <span style={{fontSize:32}}>⏳</span>
+                  <p>La cuenta está en camino.</p>
+                  <p style={{color:'var(--text2)',fontSize:'0.85em'}}>
+                    El mozo viene con {mesa.metodo_pago==='tarjeta'?'el posnet':mesa.metodo_pago==='transferencia'?'la confirmación':'el ticket'}.
+                  </p>
+                  {mesa.abona_con && (
+                    <p style={{color:'var(--text3)',fontSize:'0.82em'}}>
+                      Abona con: ${parseFloat(mesa.abona_con).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {mesa?.estado === 'cuenta_cobrada' && (
+                <div className={styles.cuentaEnCamino}>
+                  <span style={{fontSize:40}}>✅</span>
+                  <p style={{fontWeight:600}}>¡Cuenta cobrada!</p>
+                  <p style={{color:'var(--text2)',fontSize:'0.85em'}}>{getTextos().cuenta_cobrada.mensaje}</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <footer className={styles.footerApp}>{getCopyright()}</footer>
+    </div>
+  )
+}

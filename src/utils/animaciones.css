@@ -1,0 +1,135 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   ANIMACIONES GLOBALES — bar-app
+   Importar en index.css o App.css
+════════════════════════════════════════════════════════════════════════════ */
+
+/* ── KEYFRAMES ───────────────────────────────────────────────────────────── */
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes pulseRed {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224,85,85,0); }
+  50%       { box-shadow: 0 0 0 8px rgba(224,85,85,0.25); }
+}
+
+@keyframes pulseGold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200,169,110,0); }
+  50%       { box-shadow: 0 0 0 8px rgba(200,169,110,0.3); }
+}
+
+@keyframes pulseGreen {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76,175,125,0); }
+  50%       { box-shadow: 0 0 0 8px rgba(76,175,125,0.3); }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-4px); }
+  40%       { transform: translateX(4px); }
+  60%       { transform: translateX(-3px); }
+  80%       { transform: translateX(3px); }
+}
+
+@keyframes badgePop {
+  0%   { transform: scale(0); }
+  70%  { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+@keyframes borderPulse {
+  0%, 100% { border-color: var(--red); }
+  50%       { border-color: transparent; }
+}
+
+@keyframes borderPulseGold {
+  0%, 100% { border-color: var(--gold); }
+  50%       { border-color: transparent; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── CLASES UTILITARIAS ─────────────────────────────────────────────────── */
+
+/* Cards que parpadean cuando son nuevas */
+.cardNuevo {
+  animation: pulseGold 1.2s ease-in-out 3;
+}
+
+.cardUrgente {
+  animation: pulseRed 0.9s ease-in-out infinite;
+}
+
+.cardListo {
+  animation: pulseGreen 1s ease-in-out 3;
+}
+
+/* Badge animado */
+.badgeAnimado {
+  animation: badgePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* Entrada de elementos */
+.fadeIn  { animation: fadeIn  0.3s ease forwards; }
+.fadeUp  { animation: fadeUp  0.3s ease forwards; }
+.slideDown { animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.slideUp   { animation: slideUp   0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* Shake para llamar atención */
+.shake { animation: shake 0.5s ease; }
+
+/* ── BANNER DE NOTIFICACIÓN ──────────────────────────────────────────────── */
+.notifBanner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+  pointer-events: none;
+}
+
+.notifItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.88em;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: all;
+}
+
+.notifRed    { background: #c0392b; color: #fff; }
+.notifGold   { background: var(--gold); color: #000; }
+.notifGreen  { background: #27ae60; color: #fff; }
+.notifYellow { background: #e67e22; color: #fff; }

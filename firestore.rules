@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── CARTA ────────────────────────────────────────────────
+    // Cualquiera puede leer la carta (clientes, mozos, cocina)
+    // Solo usuarios autenticados pueden modificarla (encargado)
+    match /carta/{itemId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // ── MESAS ────────────────────────────────────────────────
+    // Cualquiera puede leer y escribir en mesas (clientes sin login)
+    // En producción avanzada se puede restringir por IP o token
+    match /mesas/{mesaId} {
+      allow read, write: if true;
+
+      // Subcolecciones: pedidos, mensajes, llamadas
+      match /pedidos/{pedidoId} {
+        allow read, write: if true;
+      }
+      match /mensajes/{mensajeId} {
+        allow read, write: if true;
+      }
+      match /llamadas/{llamadaId} {
+        allow read, write: if true;
+      }
+    }
+
+    // ── HISTORIAL ─────────────────────────────────────────────
+    // Solo autenticados pueden leer y escribir historial
+    match /historial/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── USUARIOS ──────────────────────────────────────────────
+    match /usuarios/{userId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
