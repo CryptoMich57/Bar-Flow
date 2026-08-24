@@ -17,6 +17,30 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Suite en verde, aviso de llamadas y limpieza
+
+- **IDs:** `AUD-010` (Resuelto).
+- **Archivos:** `.gitignore`, `src/pages/EncargadoPage.jsx`, `AUDITORIA_CLAUDE_CODEX.md`,
+  `REGISTRO_DE_CAMBIOS.md`.
+- **Cambio:** con OpenJDK 21 instalado, la suite de reglas corrió completa contra el
+  emulador: **29 pruebas, 29 en verde** en 11 segundos. Eso verifica por ejecución las tres
+  validaciones que `AUD-003`, `AUD-004` y `AUD-006` habían dejado como manuales, así que
+  `AUD-010` pasa a Resuelto.
+
+  Se corrigió además el hueco funcional que había detectado el lint: el encargado ahora
+  recibe aviso sonoro y visual cuando cualquier mesa levanta la mano. Antes solo se enteraba
+  si estaba parado justo en esa mesa, porque la única suscripción a llamadas miraba la mesa
+  seleccionada. El primer snapshot registra lo que ya estaba sin sonar, para no disparar una
+  salva de alertas al abrir la pantalla.
+
+  Los logs del emulador (`firestore-debug.log` y compañía) se agregaron al `.gitignore`.
+- **Validación:** `npm run test:reglas` → 29/29; `npx eslint .` → 0 errores; `npm run build`
+  correcto.
+- **Pendiente / riesgos:** el aviso de llamadas no se probó con dos navegadores en paralelo
+  (comensal levantando la mano y encargado escuchando); queda para la prueba manual. De
+  `AUD-010` se trasladan los tests unitarios de totales (atados a `AUD-002`), los E2E y la
+  CI.
+
 ### 2026-08-24 — Claude — Emulador, matriz de reglas y lint operativo
 
 - **IDs:** `AUD-010` (En progreso). Cubre además las pruebas negativas que habían quedado

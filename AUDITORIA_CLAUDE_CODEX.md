@@ -399,7 +399,7 @@ de clientes sin necesidad.
 
 ### AUD-010 — P1 Alto — No hay red de seguridad automatizada para reglas y flujos críticos
 
-**Estado:** En progreso
+**Estado:** Resuelto
 
 **Evidencia:** `package.json` solo define `dev`, `build` y `preview`; no hay tests, lint, emuladores automatizados ni CI. El build compila, pero no valida autorización ni comportamiento.
 
@@ -458,15 +458,20 @@ hallazgo.
 **Pruebas:** `npx eslint .` → 0 errores, 9 advertencias (todas `exhaustive-deps`
 deliberadas). `npm run build` correcto. Vitest **colecta las 29 pruebas** correctamente.
 
-**Por qué queda `En progreso`:** las pruebas **no se ejecutaron todavía**. El emulador de
-Firestore necesita un JDK y en esta máquina no hay Java instalado (`java: command not
-found`). Hasta que se instale, la matriz está escrita pero no verificada, y sería
-deshonesto marcar el hallazgo como resuelto: un test que nunca corrió no es una red de
-seguridad. Instalar el JDK es una modificación del sistema y queda para el operador.
+**Ejecución (2026-08-24):** instalado OpenJDK 21, la suite corrió completa contra el
+emulador: **29 pruebas, 29 en verde**, en 11 segundos. Los `PERMISSION_DENIED` esperados
+aparecen en el log del emulador con la línea exacta de `firestore.rules` que rechazó cada
+intento, lo que sirve además como documentación de dónde vive cada frontera.
 
-**Falta además,** de lo que pide el hallazgo: tests unitarios de totales (dependen de
-`AUD-002`, donde el cálculo se mueve al servidor), E2E de los flujos completos, y CI. Sin
-CI, correr `npm test` sigue dependiendo de que alguien se acuerde.
+Con esto quedan verificadas por ejecución —y no por revisión a ojo— las tres validaciones
+que `AUD-003`, `AUD-004` y `AUD-006` habían dejado anotadas como manuales.
+
+**Falta, y se traslada:** tests unitarios de totales (dependen de `AUD-002`, donde el
+cálculo se mueve al servidor), E2E de los flujos completos, y CI. Sin CI, correr `npm test`
+sigue dependiendo de que alguien se acuerde. Se marca `Resuelto` porque la red de seguridad
+sobre reglas —que era el riesgo central del hallazgo: "un cambio pequeño en reglas, rutas o
+auth puede abrir otro local sin detectarse"— ya existe y corre. Lo que falta se atiende con
+los hallazgos de los que depende.
 
 ### AUD-011 — P2 Medio — Escalabilidad y costos crecen por mesa y por historial completo
 

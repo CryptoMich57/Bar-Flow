@@ -19,7 +19,7 @@ import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '.
 import styles from './EncargadoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoNuevoPedido, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
+import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
 import { cerrarSesion } from '../firebase/auth'
 
 // NUMS_MESAS se genera dinámicamente desde configDB
@@ -59,6 +59,7 @@ export default function EncargadoPage() {
   const [audioOn, setAudioOn] = useState(false)
   const { agregar: notif, NotifBanner } = useNotificaciones()
   const pedidosAnteriores = useRef({})
+  const llamadasAvisadas = useRef({})
   const cuentasAnteriores = useRef({})
   const mensajesAnteriores = useRef({})
 
@@ -155,6 +156,37 @@ export default function EncargadoPage() {
         setPedidosBarra(prev => ({ ...prev, [num]: barra }))
       })
     })
+    return () => unsubs.forEach(u => u())
+  }, [localId, cantidadMesas])
+
+  // ── Suscripcion global de llamadas al mozo ──────────────────────────────────
+  // La otra suscripcion a llamadas solo mira la mesa seleccionada, asi que sin
+  // esta el encargado se enteraba de una mano levantada unicamente si justo
+  // estaba parado en esa mesa. Sonaba para pedidos, cuentas y mensajes; para
+  // esto, no.
+  useEffect(() => {
+    if (cantidadMesas === 0) return
+    const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
+    const unsubs = numsMesas.map(num =>
+      onSnapshot(colLlamadas(localId, num), snap => {
+        const pendientes = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(l => l.estado === 'pendiente')
+
+        // El primer snapshot trae lo que ya estaba: se registra sin sonar,
+        // para no disparar una salva de alertas al abrir la pantalla.
+        const primeraVez = Object.keys(llamadasAvisadas.current).length === 0
+        pendientes.forEach(l => {
+          if (!llamadasAvisadas.current[l.id]) {
+            if (!primeraVez) {
+              sonidoLlamadaMozo()
+              notif(`✋ Mesa ${num}: ${l.nota || 'te llama'}`, 'Yellow', 5000)
+            }
+            llamadasAvisadas.current[l.id] = true
+          }
+        })
+      })
+    )
     return () => unsubs.forEach(u => u())
   }, [localId, cantidadMesas])
 

@@ -27,3 +27,10 @@ _to_delete/
 # Variables de entorno (cada quien tiene las suyas)
 .env
 .env.local
+
+# Emuladores de Firebase (los generan npm test y firebase emulators)
+firestore-debug.log
+ui-debug.log
+database-debug.log
+firebase-debug.log
+.firebase/
