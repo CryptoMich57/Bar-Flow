@@ -14,14 +14,14 @@ import { createContext, useContext } from 'react'
 //  se ocultan en vez de fallar al hacer clic.
 // ============================================================
 
-const Contexto = createContext({ rol: null, esAdmin: false, soporte: false })
+const Contexto = createContext({ rol: null, ficha: null, esAdmin: false, soporte: false })
 
 export const useAccesoActual = () => useContext(Contexto)
 
-export function AccesoProvider({ rol, esAdmin, children }) {
+export function AccesoProvider({ rol, ficha, esAdmin, children }) {
   const soporte = !!esAdmin && !rol
   return (
-    <Contexto.Provider value={{ rol, esAdmin, soporte }}>
+    <Contexto.Provider value={{ rol, ficha, esAdmin, soporte }}>
       {children}
     </Contexto.Provider>
   )

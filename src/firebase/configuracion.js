@@ -12,12 +12,13 @@ export const DEFAULTS_CONFIG = {
     cbu: '',
     alias: '',
   },
-  mozos: [
-    { id: 1, nombre: 'Mozo 1', mesas_asignadas: [] },
-    { id: 2, nombre: 'Mozo 2', mesas_asignadas: [] },
-    { id: 3, nombre: 'Mozo 3', mesas_asignadas: [] },
-  ],
   mesas: { cantidad: 10 },
+  // Aca vivia una lista de mozos con sus nombres y mesas. La usaba la vista
+  // del mozo para preguntar "¿quien sos?" y dejar elegir, con lo cual
+  // cualquiera podia operar y quedar registrado como otro. Ahora el nombre y
+  // las mesas de cada persona viven en su ficha de empleado, atada al uid con
+  // el que entro. Los locales viejos pueden conservar el campo 'mozos' en la
+  // base: ya no lo lee nadie.
   // Las contrasenas no viven aca: el acceso del personal usa cuentas
   // de Firebase Authentication y los roles se leen de
   // locales/{localId}/empleados/{uid}.

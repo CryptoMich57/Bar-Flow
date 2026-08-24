@@ -22,8 +22,11 @@ const CATEGORIAS = {
 export default function MozoPage() {
   const { localId, nombre: nombreBar, logo } = useLocal()
   // soporte = plataforma mirando el local de un cliente. Ve, no opera.
-  const { soporte } = useAccesoActual()
-  const [mozoActivo, setMozoActivo]       = useState(null)
+  // ficha = quien es esta persona EN ESTE local. Antes la vista preguntaba
+  // "¿quien sos?" y ofrecia elegir de una lista: cualquier mozo podia
+  // operar y quedar registrado como otro, y tomarle las mesas. Ahora la
+  // identidad es la cuenta con la que entro, y no se puede cambiar.
+  const { soporte, ficha } = useAccesoActual()
   const [mesas, setMesas]                 = useState({})
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
   const [llamadasPorMesa, setLlamadasPorMesa] = useState({})
@@ -36,12 +39,10 @@ export default function MozoPage() {
   const [audioOn, setAudioOn]             = useState(false)
   const { agregar: notif, NotifBanner }   = useNotificaciones()
 
-  const [mozos, setMozos] = useState([])
   const [cantMesas, setCantMesas] = useState(MESAS_POR_DEFECTO)
 
   useEffect(() => {
     const unsub = suscribirConfiguracion(localId, (cfg) => {
-      if (cfg?.mozos) setMozos(cfg.mozos)
       if (cfg?.mesas?.cantidad) setCantMesas(cfg.mesas.cantidad)
     })
     return unsub
@@ -52,7 +53,6 @@ export default function MozoPage() {
 
   // ── Suscripciones ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mozoActivo) return
     const NUMS_MESAS = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
     const unsubs = NUMS_MESAS.map(num => {
       const u1 = onSnapshot(refMesa(localId, num), snap => {
@@ -75,7 +75,7 @@ export default function MozoPage() {
       return () => { u1(); u2(); u3() }
     })
     return () => unsubs.forEach(u => u())
-  }, [localId, mozoActivo, cantMesas])
+  }, [localId, cantMesas])
 
   useEffect(() => {
     const unsub = suscribirCarta(localId, setCarta)
@@ -84,8 +84,6 @@ export default function MozoPage() {
 
   // ── Sonidos + notificaciones al detectar cambios ─────────────────────────────
   useEffect(() => {
-    if (!mozoActivo) return
-
     // Pedidos listos nuevos
     const listosActuales = {}
     misMesas.flatMap(n => (pedidosPorMesa[n]||[]).map(p => ({ ...p, mesaId: n })))
@@ -133,10 +131,17 @@ export default function MozoPage() {
     return <span className={styles.personasTag}>👥 {n}</span>
   }
 
+  // Las mesas asignadas viven en la ficha y las administra el encargado.
+  // Sin asignacion explicita, la persona ve todo el salon: es lo que
+  // esperan los bares chicos, donde no hay sectores.
   const NUMS_MESAS_ACTUAL = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
-  const misMesas = mozoActivo
-    ? (mozoActivo.mesas_asignadas?.length > 0 ? mozoActivo.mesas_asignadas : NUMS_MESAS_ACTUAL)
-    : []
+  const misMesas = ficha?.mesas_asignadas?.length > 0
+    ? ficha.mesas_asignadas.map(String)
+    : NUMS_MESAS_ACTUAL
+
+  // Quien firma el pedido. Antes era el id de una lista editable, que no
+  // identificaba a nadie de verdad; ahora es el uid de la cuenta.
+  const firmaDelMozo = ficha?.uid ? `empleado_${ficha.uid}` : 'empleado_desconocido'
 
   // ── Alertas del mozo ──────────────────────────────────────────────────────────
   const mesasCuenta = misMesas.map(n => mesas[n]).filter(m => m?.estado === 'esperando_cuenta')
@@ -205,14 +210,14 @@ export default function MozoPage() {
     try {
       const mesa = mesas[mesaPedido]
       if (mesa?.carrito_bloqueado) {
-        await agregarPedidoExtra(localId, mesaPedido, carritoMozo, `mozo_${mozoActivo.id}`)
+        await agregarPedidoExtra(localId, mesaPedido, carritoMozo, firmaDelMozo)
       } else {
         // Cargar directo como pedido confirmado
         const total = carritoMozo.reduce((a, i) => a + i.precio * i.cantidad, 0)
         await addDoc(colPedidos(localId, mesaPedido), {
           items: carritoMozo,
           estado: 'pendiente',
-          confirmado_por: `mozo_${mozoActivo.id}`,
+          confirmado_por: firmaDelMozo,
           total,
           created_at: serverTimestamp(),
         })
@@ -229,26 +234,6 @@ export default function MozoPage() {
     setCargando(false)
   }
 
-  // ── PANTALLA LOGIN MOZO ───────────────────────────────────────────────────────
-  if (!mozoActivo) return (
-    <div className={styles.login}>
-      <div className={styles.loginBox}>
-        <img src={logo} alt="Logo" className={styles.loginLogo} onError={e => e.target.style.display='none'} />
-        <h2 className={styles.loginTitle}>{nombreBar}</h2>
-        <p className={styles.loginSub}>¿Quién sos?</p>
-        <div className={styles.mozosBtns}>
-          {mozos.map(m => (
-            <button key={m.id} className={styles.mozoBtn} onClick={() => setMozoActivo(m)}>
-              <span className={styles.mozoEmoji}>🧍</span>
-              <span>{m.nombre}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <footer className={styles.footer}>{getCopyright()}</footer>
-    </div>
-  )
-
   // ── VISTA PRINCIPAL MOZO ──────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
@@ -256,7 +241,7 @@ export default function MozoPage() {
         <div className={styles.headerLeft}>
           <img src={logo} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
           <div>
-            <span className={styles.headerNombre}>{mozoActivo.nombre}</span>
+            <span className={styles.headerNombre}>{ficha?.nombre || 'Mozo'}</span>
             <span className={styles.headerRol}>Mozo · {nombreBar}</span>
           </div>
         </div>
@@ -268,7 +253,6 @@ export default function MozoPage() {
           >
             {audioOn ? '🔔' : '🔕'}
           </button>
-          <button className={styles.cambiarBtn} onClick={() => setMozoActivo(null)}>Cambiar</button>
           <button className={styles.cambiarBtn} onClick={() => cerrarSesion()}>Salir</button>
         </div>
       </header>

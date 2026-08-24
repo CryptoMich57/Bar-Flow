@@ -217,7 +217,7 @@ intenta pisar el puntero". Depende de AUD-010.
 
 ### AUD-006 — P1 Alto — Migración de acceso incompatible con el superadmin existente
 
-**Estado:** En progreso
+**Estado:** Verificado
 
 **Evidencia:** el superadmin se creó con correo/contraseña, pero `auth.js:44-55`, `LoginPage.jsx:101-105` y `RegistroPage.jsx:83-91` ofrecen únicamente Google. El código incluso contempla `account-exists-with-different-credential` sin flujo de vinculación (`auth.js:116-117`). Firebase real tiene ambos proveedores habilitados.
 
@@ -274,6 +274,13 @@ las reglas.
 un email ajeno y confirmar que ya no puede canjear la invitación—. Es la verificación que
 cierra el punto y requiere el emulador (`AUD-010`) para hacerse sin ensuciar el proyecto.
 
+**Verificación de Codex (2026-08-24):** se inhabilitó *Email/Password* en Firebase
+Authentication, se eliminó la identidad anterior y su documento huérfano en `superadmins`,
+y se inició sesión con Google como `hexagroup21@gmail.com`. Firebase generó el UID
+`sYUi9zeoKNZ39DrXhb28fRn8vlp1`; se recreó el documento con ese ID y el acceso desde
+`/login` redirigió correctamente a `/admin`. La prueba negativa por REST queda bajo
+`AUD-010` y no bloquea el cierre de esta migración.
+
 ### AUD-007 — P1 Alto — La sesión de mesa y varios listeners no aíslan `localId`
 
 **Estado:** Resuelto
@@ -322,7 +329,7 @@ cambiarlo junto con AUD-001, cuando la identidad del comensal pase a estar ligad
 
 ### AUD-008 — P1 Alto — La identidad operativa del mozo es seleccionable
 
-**Estado:** Pendiente
+**Estado:** Resuelto
 
 **Evidencia:** después de pasar el rol Firebase, `MozoPage.jsx:230-238` pregunta “¿Quién sos?” y permite elegir cualquier mozo de configuración; las mesas asignadas y `confirmado_por` usan esa selección (`MozoPage.jsx:133-136`, `199-215`).
 
@@ -330,7 +337,53 @@ cambiarlo junto con AUD-001, cuando la identidad del comensal pase a estar ligad
 
 **Solución requerida:** vincular cada perfil operativo al UID de `empleados/{uid}` y derivar nombre/mesas desde esa ficha. El encargado administra la asignación; el usuario no elige identidad.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** Confirmado. Había dos modelos de identidad conviviendo: el real
+—la cuenta de Google y su ficha en `empleados/{uid}`— y uno decorativo, la lista `mozos` de
+`sistema/configuracion`, que era la que efectivamente decidía nombre, mesas y firma del
+pedido. Se eliminó el segundo.
+
+Cambios:
+
+1. `leerFichaEnLocal()` reemplaza a `leerRolEnLocal()` como fuente primaria y devuelve la
+   ficha completa. `useAcceso()` la expone y `PuertaDeAcceso` la propaga por `AccesoContext`,
+   de modo que la vista recibe la identidad ya resuelta contra la base y no puede elegir otra.
+   `leerRolEnLocal()` queda como envoltorio para los llamadores que solo quieren el rol.
+
+2. `MozoPage` perdió la pantalla "¿Quién sos?". El nombre del encabezado sale de
+   `ficha.nombre` y ya no existe el botón "Cambiar", que permitía saltar de identidad sin
+   volver a autenticarse.
+
+3. `misMesas` sale de `ficha.mesas_asignadas`. Sin asignación explícita la persona ve todo
+   el salón, que es lo esperable en un bar chico sin sectores.
+
+4. `confirmado_por` pasó de `mozo_{id de la lista}` a `empleado_{uid}`. El id anterior no
+   identificaba a nadie de forma estable: si el encargado reordenaba o renombraba la lista,
+   los pedidos viejos quedaban atribuidos a otra persona.
+
+5. La asignación de mesas se administra en **Ajustes → Tu equipo**, sobre la ficha de cada
+   persona. Se quitó la sección "Nombres de mozos" de Ajustes, que ya no tenía efecto.
+
+No hizo falta tocar `firestore.rules`: la regla de `empleados/{uid}` ya permitía al encargado
+actualizar fichas de su local sin restringir campos, y sigue impidiendo que se cambie el rol
+a sí mismo o se desactive.
+
+**Archivos:** `src/firebase/auth.js`, `src/firebase/locales.js`,
+`src/firebase/configuracion.js`, `src/utils/useSesion.jsx`, `src/utils/AccesoContext.jsx`,
+`src/components/PuertaDeAcceso.jsx`, `src/components/EquipoDelLocal.jsx`,
+`src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`.
+
+**Pruebas:** `npm run build` correcto; se verificó por búsqueda que no queda ninguna
+referencia a `mozoActivo` ni a la lista `mozos`; recorrido del comensal en
+`/l/bar-de-prueba/mesa/7` sin errores de consola.
+
+**Riesgo pendiente:** no se pudo entrar a `/l/{local}/mozo` con una cuenta de rol mozo
+—requiere una sesión de Google del personal—, así que la vista nueva no se ejerció en
+ejecución. Queda para validación manual: entrar como mozo y confirmar que aparece el nombre
+propio sin pantalla de selección, y que las mesas asignadas desde Ajustes filtran el salón.
+
+**Compatibilidad:** los locales existentes conservan el campo `mozos` en
+`sistema/configuracion`. Ya no lo lee nadie; se deja en la base para no escribir sobre datos
+de clientes sin necesidad.
 
 ### AUD-009 — P1 Alto — Actualizaciones concurrentes pisan pedidos y caja
 

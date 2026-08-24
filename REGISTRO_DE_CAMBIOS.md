@@ -17,6 +17,45 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — La identidad del mozo deja de ser elegible
+
+- **IDs:** `AUD-008` (Resuelto).
+- **Archivos:** `src/firebase/auth.js`, `src/firebase/locales.js`,
+  `src/firebase/configuracion.js`, `src/utils/useSesion.jsx`, `src/utils/AccesoContext.jsx`,
+  `src/components/PuertaDeAcceso.jsx`, `src/components/EquipoDelLocal.jsx`,
+  `src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`.
+- **Cambio:** convivían dos modelos de identidad. El real —la cuenta de Google y su ficha en
+  `empleados/{uid}`— y uno decorativo, la lista `mozos` de configuración, que era la que de
+  hecho decidía nombre, mesas y firma del pedido. Se eliminó el segundo: la ficha completa
+  viaja por `AccesoContext`, `MozoPage` perdió la pantalla "¿Quién sos?" y el botón
+  "Cambiar", `misMesas` sale de `ficha.mesas_asignadas` y `confirmado_por` pasó a
+  `empleado_{uid}`. La asignación de mesas se administra en Ajustes → Tu equipo, sobre la
+  ficha de cada persona.
+- **Validación:** `npm run build` correcto; búsqueda sin resultados de `mozoActivo` y de la
+  lista `mozos`; recorrido del comensal sin errores de consola. No hicieron falta cambios en
+  `firestore.rules`.
+- **Pendiente / riesgos:** la vista del mozo no se ejerció en ejecución porque requiere una
+  sesión de Google con ese rol. Queda para validación manual: entrar como mozo, confirmar
+  que aparece el nombre propio sin selector, y que las mesas asignadas filtran el salón. Los
+  locales existentes conservan el campo `mozos` en la base; ya no lo lee nadie y se deja
+  para no escribir sobre datos de clientes sin necesidad.
+
+### 2026-08-24 — Codex — Migración del superadmin a Google completada
+
+- **IDs:** `AUD-006` (Verificado).
+- **Archivos:** `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`; configuración real
+  de Firebase Authentication y documento real de Firestore.
+- **Cambio:** se inhabilitó el proveedor *Email/Password*. Se eliminó la identidad anterior
+  de `hexagroup21@gmail.com` (UID `vX3JgJblO7aZiZbbq3MOWyqGMQx2`) y su documento huérfano
+  `superadmins/{uid}`. Después se inició sesión por Google, Firebase creó el UID
+  `sYUi9zeoKNZ39DrXhb28fRn8vlp1` y se recreó
+  `superadmins/sYUi9zeoKNZ39DrXhb28fRn8vlp1` con el email administrativo.
+- **Validación:** Authentication muestra el usuario con proveedor Google; la colección
+  `superadmins` contiene únicamente el UID nuevo; al recargar `/login`, la aplicación
+  redirige a `/admin` y muestra el padrón de locales.
+- **Pendiente / riesgos:** la prueba negativa automatizada del alta por REST continúa
+  asociada a `AUD-010`; no impide cerrar la migración de identidad de `AUD-006`.
+
 ### 2026-08-24 — Claude — Un solo modelo de acceso y email verificado
 
 - **IDs:** `AUD-006` (En progreso).

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   suscribirEmpleados, suscribirInvitaciones, invitarEmpleado,
   cancelarInvitacion, cambiarRolEmpleado, activarEmpleado,
-  quitarEmpleado, ROLES, ETIQUETA_ROL,
+  quitarEmpleado, asignarMesas, ROLES, ETIQUETA_ROL,
 } from '../firebase/locales'
 import { auth } from '../firebase/config'
 
@@ -29,7 +29,7 @@ const ROL_DESC = {
   mozo:      'Alertas, sus mesas y toma de pedidos.',
 }
 
-export default function EquipoDelLocal({ localId }) {
+export default function EquipoDelLocal({ localId, cantidadMesas = 10 }) {
   const [equipo, setEquipo]           = useState([])
   const [invitaciones, setInvitaciones] = useState([])
   const [abriendo, setAbriendo]       = useState(false)
@@ -39,8 +39,21 @@ export default function EquipoDelLocal({ localId }) {
   const [error, setError]             = useState(null)
   const [aviso, setAviso]             = useState(null)
   const [enviando, setEnviando]       = useState(false)
+  const [editandoMesas, setEditandoMesas] = useState(null)
 
   const miUid = auth.currentUser?.uid
+  const numerosDeMesa = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
+
+  // Las mesas de cada persona viven en su ficha. Tocar un numero la agrega o
+  // la saca; sin ninguno marcado, atiende todo el salon.
+  const alternarMesa = async (p, numero) => {
+    const actuales = (p.mesas_asignadas || []).map(String)
+    const nuevas = actuales.includes(numero)
+      ? actuales.filter(n => n !== numero)
+      : [...actuales, numero]
+    try { await asignarMesas(localId, p.uid, nuevas) }
+    catch (e) { alert('No se pudieron guardar las mesas: ' + e.message) }
+  }
 
   useEffect(() => {
     if (!localId) return
@@ -99,7 +112,8 @@ export default function EquipoDelLocal({ localId }) {
       <p style={{color:'var(--text2)', fontSize:'0.85em', marginTop:0}}>
         Cada persona entra con su cuenta de Google — no hay contrasenas que
         recordar ni que pasarse. Anota su email y queda dentro la primera vez
-        que abre la app.
+        que abre la app. Su nombre y sus mesas salen de acá: nadie elige quién
+        es al entrar.
       </p>
 
       {aviso && (
@@ -136,6 +150,13 @@ export default function EquipoDelLocal({ localId }) {
                     {ROLES.map(r => <option key={r} value={r}>{ETIQUETA_ROL[r]}</option>)}
                   </select>
 
+                  <button className="btn btn-ghost" style={{padding:'8px 12px'}}
+                    onClick={() => setEditandoMesas(editandoMesas === p.uid ? null : p.uid)}>
+                    🏠 {(p.mesas_asignadas || []).length > 0
+                      ? `${p.mesas_asignadas.length} mesa${p.mesas_asignadas.length === 1 ? '' : 's'}`
+                      : 'Todo el salón'}
+                  </button>
+
                   {!soyYo && (
                     <>
                       <button className="btn btn-ghost" style={{padding:'8px 12px'}}
@@ -150,6 +171,32 @@ export default function EquipoDelLocal({ localId }) {
                   )}
                 </div>
               </div>
+
+              {editandoMesas === p.uid && (
+                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid var(--bg3)'}}>
+                  <p style={{color:'var(--text2)', fontSize:'0.8em', margin:'0 0 8px'}}>
+                    Mesas que atiende. Sin ninguna marcada, ve todo el salón.
+                  </p>
+                  <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                    {numerosDeMesa.map(n => {
+                      const tomada = (p.mesas_asignadas || []).map(String).includes(n)
+                      return (
+                        <button key={n}
+                          onClick={() => alternarMesa(p, n)}
+                          style={{
+                            minWidth:36, padding:'6px 8px', borderRadius:8, cursor:'pointer',
+                            fontFamily:'inherit', fontSize:'0.85em', fontWeight:600,
+                            border:`1px solid ${tomada ? 'var(--gold)' : 'var(--bg3)'}`,
+                            background: tomada ? 'var(--gold)' : 'var(--bg3)',
+                            color: tomada ? '#000' : 'var(--text2)',
+                          }}>
+                          {n}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}

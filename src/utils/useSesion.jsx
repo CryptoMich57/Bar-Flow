@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   suscribirSesion, asegurarSesionAnonima,
-  leerRolEnLocal, leerPertenencia, leerEsAdminPlataforma,
+  leerFichaEnLocal, leerPertenencia, leerEsAdminPlataforma,
 } from '../firebase/auth'
 import { aceptarInvitacion, buscarInvitacion } from '../firebase/locales'
 
@@ -40,34 +40,34 @@ export function useSesion({ anonimoAutomatico = true } = {}) {
 // del bar B, ahi no tiene ficha y no hay rol que devolver.
 export function useAcceso(localId, rolesPermitidos = []) {
   const { user, cargando: cargandoSesion } = useSesion({ anonimoAutomatico: false })
-  const [estado, setEstado] = useState({ rol: null, esAdmin: false, resolviendo: true })
+  const [estado, setEstado] = useState({ ficha: null, esAdmin: false, resolviendo: true })
 
   useEffect(() => {
     let vivo = true
     if (cargandoSesion) return
     if (!user || user.isAnonymous) {
-      setEstado({ rol: null, esAdmin: false, resolviendo: false })
+      setEstado({ ficha: null, esAdmin: false, resolviendo: false })
       return
     }
     setEstado(e => ({ ...e, resolviendo: true }))
 
     const resolver = async () => {
-      let [rol, esAdmin] = await Promise.all([
-        leerRolEnLocal(localId, user.uid),
+      let [ficha, esAdmin] = await Promise.all([
+        leerFichaEnLocal(localId, user.uid),
         leerEsAdminPlataforma(user.uid),
       ])
       // Sin ficha, pero puede ser alguien que entra por primera vez
       // con una invitacion pendiente para este local. Se canjea sola:
       // la persona hizo clic en el link de su bar y entro con Google,
       // no tiene por que apretar un boton mas.
-      if (!rol && !esAdmin) {
+      if (!ficha && !esAdmin) {
         const invitacion = await buscarInvitacion(user.email)
         if (invitacion?.local_id === localId) {
           await aceptarInvitacion(user).catch(() => {})
-          rol = await leerRolEnLocal(localId, user.uid)
+          ficha = await leerFichaEnLocal(localId, user.uid)
         }
       }
-      if (vivo) setEstado({ rol, esAdmin, resolviendo: false })
+      if (vivo) setEstado({ ficha, esAdmin, resolviendo: false })
     }
     resolver()
 
@@ -76,12 +76,16 @@ export function useAcceso(localId, rolesPermitidos = []) {
 
   // El encargado entra a todas las vistas de su local. El admin de la
   // plataforma entra a cualquier local, para poder dar soporte.
+  const rol = estado.ficha?.rol || null
   const permitidos = ['encargado', ...rolesPermitidos]
-  const tieneAcceso = estado.esAdmin || (!!estado.rol && permitidos.includes(estado.rol))
+  const tieneAcceso = estado.esAdmin || (!!rol && permitidos.includes(rol))
 
   return {
     user,
-    rol: estado.rol,
+    rol,
+    // La ficha completa: nombre y mesas asignadas salen de aca, no de una
+    // lista editable ni de una pantalla donde la persona elija quien es.
+    ficha: estado.ficha,
     esAdmin: estado.esAdmin,
     tieneAcceso,
     cargando: cargandoSesion || estado.resolviendo,

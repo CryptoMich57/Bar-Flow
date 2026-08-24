@@ -60,19 +60,29 @@ export const cerrarSesion = async () => {
   await signOut(auth)
 }
 
-// El rol que vale para los permisos: el que esta en ESTE local.
-// Si la persona no trabaja aca, no hay ficha y no hay rol. Punto.
-export const leerRolEnLocal = async (localId, uid) => {
+// La ficha de empleado en ESTE local: quien es la persona y que puede
+// hacer. Si no trabaja aca no hay ficha, y sin ficha no hay nada.
+//
+// Devuelve la ficha entera y no solo el rol porque las vistas necesitan
+// tambien el nombre y las mesas asignadas. Que esos datos salgan de aca
+// —y no de una lista editable ni de una eleccion en pantalla— es lo que
+// hace que la identidad operativa sea la cuenta con la que se entro.
+export const leerFichaEnLocal = async (localId, uid) => {
   if (!localId || !uid) return null
   try {
     const snap = await getDoc(refEmpleado(localId, uid))
     if (!snap.exists()) return null
     const datos = snap.data()
     if (datos.activo === false) return null
-    return datos.rol || null
+    return { uid, ...datos }
   } catch {
     return null
   }
+}
+
+export const leerRolEnLocal = async (localId, uid) => {
+  const ficha = await leerFichaEnLocal(localId, uid)
+  return ficha?.rol || null
 }
 
 // Atajo de navegacion: a que local pertenece esta cuenta. Sirve para

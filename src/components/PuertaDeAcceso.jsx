@@ -14,7 +14,7 @@ import styles from './PuertaDeAcceso.module.css'
 // plataforma entra a cualquier local para poder dar soporte.
 export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, children }) {
   const { localId, local, nombre: nombreBar, logo, cargando: cargandoLocal } = useLocal()
-  const { user, rol, esAdmin, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
+  const { user, rol, ficha, esAdmin, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
   const [error, setError]       = useState(null)
   const [enviando, setEnviando] = useState(false)
 
@@ -83,7 +83,7 @@ export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, childre
   // La vista necesita saber con que sombrero entro la persona, para poder
   // esconder lo que no va a poder hacer.
   if (tieneAcceso) return (
-    <AccesoProvider rol={rol} esAdmin={esAdmin}>{children}</AccesoProvider>
+    <AccesoProvider rol={rol} ficha={ficha} esAdmin={esAdmin}>{children}</AccesoProvider>
   )
 
   // Entro con una cuenta real, pero sin permiso para esta vista de este local.

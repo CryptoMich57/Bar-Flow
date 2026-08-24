@@ -863,25 +863,6 @@ export default function EncargadoPage() {
                   </div>
                 </div>
 
-                {/* ── MOZOS ── */}
-                <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>🧍 Nombres de mozos</h3>
-                  <p className={styles.ajustesDesc}>Estos nombres aparecen en la pantalla de login del mozo.</p>
-                  <div className={styles.ajustesGrid}>
-                    {(configDB.mozos || []).map((mozo, i) => (
-                      <div key={i} className={styles.ajustesField}>
-                        <label>Mozo {i + 1}</label>
-                        <input className="input" value={mozo.nombre || ''}
-                          onChange={e => {
-                            const nuevos = [...configDB.mozos]
-                            nuevos[i] = { ...nuevos[i], nombre: e.target.value }
-                            updateConfig('mozos', nuevos)
-                          }}
-                          placeholder={`Nombre mozo ${i + 1}`} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
                 {/* ── MESAS ── */}
                 <div className={styles.ajustesSeccion}>
@@ -904,7 +885,7 @@ export default function EncargadoPage() {
                       dan de alta ni de baja cuentas.
                     </p>
                   ) : (
-                    <EquipoDelLocal localId={localId} />
+                    <EquipoDelLocal localId={localId} cantidadMesas={cantidadMesas} />
                   )}
                 </div>
 

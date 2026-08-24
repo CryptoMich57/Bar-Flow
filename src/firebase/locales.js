@@ -214,6 +214,17 @@ export const activarEmpleado = async (localId, uid, activo) => {
   await updateDoc(refEmpleado(localId, uid), { activo })
 }
 
+// Que mesas atiende cada persona. Vive en su ficha —no en una lista suelta
+// de configuracion— para que la identidad operativa y las mesas sean el
+// mismo dato: el mozo no elige quien es ni que mesas toma.
+// Una lista vacia significa "todo el salon", que es lo normal en un bar
+// chico donde no hay sectores.
+export const asignarMesas = async (localId, uid, mesas) => {
+  const limpias = [...new Set((mesas || []).map(String))]
+    .sort((a, b) => Number(a) - Number(b))
+  await updateDoc(refEmpleado(localId, uid), { mesas_asignadas: limpias })
+}
+
 // Quita a la persona del local. Su cuenta de Google no se toca —no es
 // nuestra—, pero sin ficha no puede entrar a ninguna vista ni leer un
 // solo dato del negocio.
