@@ -113,8 +113,12 @@ export const mensajeDeError = (codigo) => {
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':  return 'Cerraste la ventana de Google antes de terminar.'
     case 'auth/popup-blocked':            return 'El navegador bloqueo la ventana de Google. Permitila y volve a intentar.'
+    // Pasa cuando ese email ya tiene una cuenta creada con contrasena, de
+    // antes de que el acceso fuera solo con Google. No hay pantalla para
+    // vincularlas —agregarla seria devolver las contrasenas por la ventana—,
+    // asi que se resuelve una vez desde la consola.
     case 'auth/account-exists-with-different-credential':
-                                          return 'Ya existe una cuenta con ese email por otro medio de acceso.'
+                                          return 'Ese email ya tiene una cuenta creada con contrasena. Hay que borrarla desde Firebase Authentication y volver a entrar con Google.'
     case 'auth/user-disabled':            return 'Esta cuenta esta deshabilitada.'
     case 'auth/too-many-requests':        return 'Demasiados intentos. Espera unos minutos.'
     case 'auth/network-request-failed':   return 'Sin conexion. Revisa internet.'

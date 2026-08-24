@@ -217,7 +217,7 @@ intenta pisar el puntero". Depende de AUD-010.
 
 ### AUD-006 — P1 Alto — Migración de acceso incompatible con el superadmin existente
 
-**Estado:** Pendiente
+**Estado:** En progreso
 
 **Evidencia:** el superadmin se creó con correo/contraseña, pero `auth.js:44-55`, `LoginPage.jsx:101-105` y `RegistroPage.jsx:83-91` ofrecen únicamente Google. El código incluso contempla `account-exists-with-different-credential` sin flujo de vinculación (`auth.js:116-117`). Firebase real tiene ambos proveedores habilitados.
 
@@ -225,7 +225,54 @@ intenta pisar el puntero". Depende de AUD-010.
 
 **Solución requerida:** decidir un único modelo, migrar/vincular la credencial preservando el UID o mantener temporalmente un acceso seguro de transición. Documentar y probar la migración antes del despliegue.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** El hallazgo es correcto, y al revisarlo apareció algo más grave que
+la molestia de acceso: **tener el proveedor de contraseña habilitado abría una vía para
+robar invitaciones**.
+
+La apiKey viaja en el bundle y la API de Firebase es pública. Con *Email/Password* activo,
+cualquiera puede llamar a `accounts:signUp` por REST declarando **un email que no le
+pertenece** —no hay verificación— y obtener un token cuyo campo `email` es ese, con
+`email_verified: false`. Las reglas comparaban contra `request.auth.token.email` sin mirar
+la verificación, así que ese token servía para satisfacer `tengoInvitacion()` y crearse una
+ficha de empleado con el rol invitado. Es decir: si un bar tenía pendiente una invitación
+para `cocina@subar.com`, un tercero podía quedarse con ese puesto.
+
+Decisiones tomadas:
+
+1. **Un solo modelo: Google.** No se agrega pantalla de vinculación de credenciales, porque
+   requiere pedir la contraseña y eso contradice la decisión de producto. La cuenta
+   administrativa creada con contraseña se resuelve una única vez a mano: borrarla en
+   Authentication y volver a entrar con Google. El UID cambia, y por eso el documento
+   `superadmins/{uid}` hay que rehacerlo con el nuevo. No hay dato asociado que se pierda:
+   el superadmin no es dueño de ningún local.
+
+2. **`miEmail()` ahora exige `email_verified == true`** y devuelve `null` si no lo está.
+   Todas las comparaciones contra el id del documento verifican además que no sea `null`,
+   para que un token sin email no coincida por accidente. Google firma `email_verified` en
+   true siempre; un alta por contraseña sin confirmar, no.
+
+3. **Documentado que *Email/Password* debe quedar deshabilitado** en el README, junto con el
+   motivo. Las reglas ya no dependen de eso, pero es superficie de ataque que el producto no
+   usa.
+
+4. El mensaje de `auth/account-exists-with-different-credential` ahora explica qué hacer en
+   lugar de decir solamente que el email ya existe.
+
+**Archivos:** `firestore.rules`, `src/firebase/auth.js`, `README.md`.
+
+**Pruebas:** reglas compiladas y desplegadas a `barflow-hexagroup`; `npm run build`
+correcto.
+
+**Por qué queda `En progreso` y no `Resuelto`:** la parte de código está hecha, pero el
+hallazgo se cierra con dos acciones en la consola que no puedo ejecutar —no tengo acceso a
+la cuenta del operador—: deshabilitar *Email/Password* y rehacer el superadmin con Google.
+Hasta que eso pase, la cuenta administrativa sigue sin vía de acceso en la UI actual, que es
+exactamente lo que describe el hallazgo. No corresponde marcarlo resuelto por haber tocado
+las reglas.
+
+**Riesgo pendiente:** no se ejecutó la prueba negativa real —crear una cuenta por REST con
+un email ajeno y confirmar que ya no puede canjear la invitación—. Es la verificación que
+cierra el punto y requiere el emulador (`AUD-010`) para hacerse sin ensuciar el proyecto.
 
 ### AUD-007 — P1 Alto — La sesión de mesa y varios listeners no aíslan `localId`
 

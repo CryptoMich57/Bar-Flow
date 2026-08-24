@@ -98,11 +98,20 @@ service cloud.firestore {
         && get(refDelLocal(localId)).data.owner_uid == miUid();
     }
 
-    // El email verificado que trae el token de Google. Es la clave de
-    // las invitaciones: nadie puede reclamar la de otra persona porque
-    // el email no lo elige el cliente, lo firma el proveedor.
+    // El email de las invitaciones. Se exige que este VERIFICADO, y no
+    // es un detalle: la API de Firebase es publica y la apiKey viaja en
+    // el bundle, asi que cualquiera puede darse de alta por REST con un
+    // email que no le pertenece. El token resultante trae ese email pero
+    // con email_verified en false. Sin este chequeo, alguien podia
+    // registrarse como cocina@barajeno.com y quedarse con la invitacion
+    // pendiente de esa persona, entrando al local con su rol.
+    //
+    // Google siempre firma email_verified en true. Un alta por
+    // contrasena sin confirmar, no.
     function miEmail() {
-      return request.auth.token.email;
+      return request.auth.token.email_verified == true
+        ? request.auth.token.email
+        : null;
     }
 
     function refInvitacion(localId, email) {
@@ -252,7 +261,7 @@ service cloud.firestore {
         // La persona invitada lee la suya para saber que rol le toca.
         allow read: if esEncargado(localId)
           || esAdminPlataforma()
-          || (logueado() && email == miEmail());
+          || (logueado() && miEmail() != null && email == miEmail());
 
         allow create, update: if esEncargado(localId)
           && request.resource.data.rol in ['encargado', 'cocina', 'mozo'];
@@ -260,7 +269,7 @@ service cloud.firestore {
         // La borra el encargado (se arrepintio) o la propia persona
         // al canjearla. La plataforma no reparte invitaciones.
         allow delete: if esEncargado(localId)
-          || (logueado() && email == miEmail());
+          || (logueado() && miEmail() != null && email == miEmail());
       }
     }
 
@@ -270,7 +279,7 @@ service cloud.firestore {
     // puede leer y borrar la suya: el email lo firma Google, no lo
     // elige el cliente, asi que nadie puede reclamar la de otro.
     match /invitaciones/{email} {
-      allow get: if logueado() && email == miEmail();
+      allow get: if logueado() && miEmail() != null && email == miEmail();
       allow list: if esAdminPlataforma();
 
       // Solo un encargado puede dejar una invitacion, y solo apuntando
@@ -286,7 +295,7 @@ service cloud.firestore {
       allow update: if esEncargado(request.resource.data.local_id)
         && resource.data.local_id == request.resource.data.local_id;
 
-      allow delete: if (logueado() && email == miEmail())
+      allow delete: if (logueado() && miEmail() != null && email == miEmail())
         || esEncargado(resource.data.local_id);
     }
 

@@ -78,12 +78,18 @@ El `.env` no se versiona: cada entorno tiene el suyo.
 
 2. **Crear la base de Firestore** (modo produccion).
 
-3. **Activar Authentication** con dos proveedores:
+3. **Activar Authentication** con exactamente dos proveedores:
    - *Anonimo*: lo usa el comensal. No ve ningun acceso, pero sin esto las
      reglas rechazan todas las lecturas.
    - *Google*: lo usa el personal y el registro de locales. **No hay
      contrasenas en ningun lado**: nadie las olvida y nosotros no las
      guardamos.
+
+   **Dejar *Email/Password* DESHABILITADO.** La apiKey viaja en el bundle y la
+   API de Firebase es publica: con ese proveedor activo cualquiera puede darse
+   de alta por REST con un email que no le pertenece. Las reglas ya exigen
+   `email_verified`, asi que no alcanzaria para robar una invitacion, pero es
+   superficie de ataque que no usamos.
 
 4. **Publicar las reglas**: `firebase deploy --only firestore:rules`
 
@@ -148,9 +154,11 @@ distinto, `firebase use --add` y elegirlo.
   administra desde la app, pero solo dentro de su local, y no puede cambiarse
   el rol a si mismo ni desactivarse: el local nunca queda sin administrador.
 - `superadmins` no se puede escribir desde la app. Solo desde la consola.
-- El email de las invitaciones lo firma Google, no lo elige el cliente: por eso
-  las reglas pueden confiar en `request.auth.token.email` para decidir quien
-  canjea que invitacion.
+- El email de las invitaciones tiene que venir **verificado**
+  (`request.auth.token.email_verified`). Google siempre lo firma en true; un
+  alta por contrasena sin confirmar, no. Sin ese chequeo alguien podia darse de
+  alta por REST como `cocina@barajeno.com` y quedarse con la invitacion
+  pendiente de esa persona.
 - Suspender un local lo congela para todos —comensales y personal— excepto para
   la plataforma, que es quien tiene que poder reactivarlo.
 - El historial y la caja son solo para el personal del local. La carta y la

@@ -17,6 +17,26 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Un solo modelo de acceso y email verificado
+
+- **IDs:** `AUD-006` (En progreso).
+- **Archivos:** `firestore.rules`, `src/firebase/auth.js`, `README.md`.
+- **Cambio:** revisando el hallazgo apareció un problema mayor que el descrito. Con el
+  proveedor *Email/Password* habilitado, cualquiera puede darse de alta por REST con un email
+  ajeno —la apiKey es pública y no hay verificación— y obtener un token con ese email y
+  `email_verified: false`. Las reglas comparaban contra `token.email` sin mirar la
+  verificación, así que ese token alcanzaba para **canjear la invitación pendiente de otra
+  persona** y entrar al local con su rol. `miEmail()` ahora exige `email_verified == true` y
+  devuelve `null` si no lo está; todas las comparaciones chequean además que no sea nulo.
+  Se documentó que el proveedor de contraseña debe quedar deshabilitado y se mejoró el
+  mensaje de error de credencial duplicada.
+- **Validación:** reglas compiladas y desplegadas; `npm run build` correcto.
+- **Pendiente / riesgos:** queda `En progreso` a propósito. El cierre depende de dos
+  acciones en la consola que no puedo ejecutar: deshabilitar *Email/Password* y rehacer el
+  superadmin con Google (el UID cambia, hay que recrear `superadmins/{uid}`). Tampoco se
+  ejecutó la prueba negativa real de alta por REST: necesita el emulador (`AUD-010`) para
+  hacerse sin ensuciar el proyecto.
+
 ### 2026-08-24 — Claude — Soporte de plataforma acotado a solo lectura
 
 - **IDs:** `AUD-003` (Resuelto).
