@@ -262,7 +262,16 @@ service cloud.firestore {
 
       // Solo un encargado puede dejar una invitacion, y solo apuntando
       // a su propio local.
-      allow create, update: if esEncargado(request.resource.data.local_id);
+      allow create: if esEncargado(request.resource.data.local_id);
+
+      // Pisar un puntero que ya existe solo se permite si sigue siendo del
+      // mismo local. Asi un encargado no puede robarle una invitacion
+      // pendiente a otro negocio, y —importante— el cliente no necesita
+      // LEER el documento para averiguarlo: si ya es de otro local, la
+      // escritura se rechaza sola. Antes la app hacia ese chequeo con un
+      // get() que las reglas le negaban, y el alta de personal moria ahi.
+      allow update: if esEncargado(request.resource.data.local_id)
+        && resource.data.local_id == request.resource.data.local_id;
 
       allow delete: if (logueado() && email == miEmail())
         || esEncargado(resource.data.local_id)

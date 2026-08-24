@@ -113,11 +113,11 @@ export const invitarEmpleado = async ({ localId, email, nombre, rol }) => {
   const mail = normalizarEmail(email)
   if (!mail.includes('@')) throw new Error('Ese email no es valido.')
 
-  const yaInvitado = await getDoc(refInvitacionGlobal(mail))
-  if (yaInvitado.exists() && yaInvitado.data().local_id !== localId) {
-    throw new Error('Esa persona ya tiene una invitacion pendiente en otro local.')
-  }
-
+  // Aca antes se leia invitaciones/{email} para ver si la persona ya estaba
+  // invitada en otro local. Esa lectura las reglas se la niegan al encargado
+  // —el indice global solo lo lee su propio dueno— y el alta moria con
+  // permission-denied antes de escribir nada. Ahora el chequeo lo hace la
+  // regla al escribir: si el puntero ya pertenece a otro local, rechaza.
   const batch = writeBatch(db)
   batch.set(refInvitacion(localId, mail), {
     email:     mail,
@@ -126,7 +126,15 @@ export const invitarEmpleado = async ({ localId, email, nombre, rol }) => {
     creada_en: serverTimestamp(),
   })
   batch.set(refInvitacionGlobal(mail), { local_id: localId, rol })
-  await batch.commit()
+
+  try {
+    await batch.commit()
+  } catch (err) {
+    if (err?.code === 'permission-denied') {
+      throw new Error('Esa persona ya tiene una invitacion pendiente en otro local.')
+    }
+    throw err
+  }
 }
 
 export const suscribirInvitaciones = (localId, callback) => {

@@ -19,18 +19,28 @@ const getDispositivoId = () => {
   if (!id) { id = 'disp_' + Math.random().toString(36).slice(2); localStorage.setItem('dispositivo_id', id) }
   return id
 }
-const guardarSesion = (mesaId, nombre, personas) => {
-  localStorage.setItem('sesion_mesa', JSON.stringify({ mesaId, nombre, personas, ts: Date.now() }))
+// La sesion se guarda por local Y por mesa. Con una sola clave global, al
+// pasar de un bar a otro se reusaba el nombre y la cantidad de personas del
+// anterior, y el comensal aparecia sentado en una mesa que no era la suya.
+const claveSesion = (localId, mesaId) => `sesion_mesa:${localId}:${mesaId}`
+
+const guardarSesion = (localId, mesaId, nombre, personas) => {
+  localStorage.setItem(
+    claveSesion(localId, mesaId),
+    JSON.stringify({ localId, mesaId, nombre, personas, ts: Date.now() })
+  )
 }
-const cargarSesion = (mesaId) => {
+const cargarSesion = (localId, mesaId) => {
+  if (!localId || !mesaId) return null
   try {
-    const s = JSON.parse(localStorage.getItem('sesion_mesa') || '{}')
-    // Solo recuperar si es la misma mesa y no pasaron más de 4 horas
-    if (s.mesaId === mesaId && Date.now() - s.ts < 4 * 60 * 60 * 1000) return s
+    const s = JSON.parse(localStorage.getItem(claveSesion(localId, mesaId)) || '{}')
+    // Solo recuperar si es el mismo local y mesa, y no pasaron más de 4 horas
+    if (s.localId === localId && s.mesaId === mesaId
+        && Date.now() - s.ts < 4 * 60 * 60 * 1000) return s
   } catch {}
   return null
 }
-const borrarSesion = () => localStorage.removeItem('sesion_mesa')
+const borrarSesion = (localId, mesaId) => localStorage.removeItem(claveSesion(localId, mesaId))
 
 const CATEGORIAS = {
   promocion:        { label: 'Promo del día', emoji: '🌟' },
@@ -53,7 +63,7 @@ export default function MesaPage() {
   }, [localId])
 
   // Recuperar sesión guardada
-  const sesionGuardada = cargarSesion(mesaId)
+  const sesionGuardada = cargarSesion(localId, mesaId)
 
   const [paso, setPaso]             = useState(sesionGuardada ? 'carta' : 'bienvenida')
   const [nombre, setNombre]         = useState(sesionGuardada?.nombre || '')
@@ -85,7 +95,7 @@ export default function MesaPage() {
       ocuparMesa(localId, mesaId, sesionGuardada.nombre, dispositivoId, sesionGuardada.personas)
         .catch(() => {})
     }
-  }, [])
+  }, [localId, mesaId])
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
@@ -93,23 +103,23 @@ export default function MesaPage() {
       setMesa(data)
       // Si el encargado liberó la mesa, limpiar sesión y mostrar despedida
       if (data?.estado === 'libre' && paso === 'carta') {
-        borrarSesion()
+        borrarSesion(localId, mesaId)
         setPaso('pagado')
       }
     })
     return unsub
-  }, [mesaId, paso])
+  }, [localId, mesaId, paso])
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
     const unsub = suscribirPedidos(localId, mesaId, setPedidos)
     return unsub
-  }, [mesaId, paso])
+  }, [localId, mesaId, paso])
 
   useEffect(() => {
     const unsub = suscribirCarta(localId, setCarta)
     return unsub
-  }, [])
+  }, [localId])
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
@@ -122,7 +132,7 @@ export default function MesaPage() {
       setTimeout(() => mensajesRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 100)
     })
     return unsub
-  }, [mesaId, paso])
+  }, [localId, mesaId, paso])
 
   const handleEntrarNombre = async () => {
     if (!nombre.trim()) return
@@ -130,7 +140,7 @@ export default function MesaPage() {
     setError(null)
     try {
       await ocuparMesa(localId, mesaId, nombre.trim(), dispositivoId, personas)
-      guardarSesion(mesaId, nombre.trim(), personas)
+      guardarSesion(localId, mesaId, nombre.trim(), personas)
       setPaso('carta')
     } catch (e) { setError('No se pudo conectar con la mesa. Intentá de nuevo.') }
     setCargando(false)

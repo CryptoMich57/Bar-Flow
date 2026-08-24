@@ -77,7 +77,7 @@ export default function MozoPage() {
   useEffect(() => {
     const unsub = suscribirCarta(localId, setCarta)
     return unsub
-  }, [])
+  }, [localId])
 
   // ── Sonidos + notificaciones al detectar cambios ─────────────────────────────
   useEffect(() => {

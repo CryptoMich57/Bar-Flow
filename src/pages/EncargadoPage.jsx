@@ -120,12 +120,12 @@ export default function EncargadoPage() {
   useEffect(() => {
     if (tab !== 'historial') return
     cargarHistorial()
-  }, [tab])
+  }, [localId, tab])
 
   useEffect(() => {
     if (tab !== 'estadisticas') return
     calcularEstadisticas()
-  }, [tab])
+  }, [localId, tab])
 
   // ── Suscripción global de pedidos para notificaciones ───────────────────────
   useEffect(() => {
@@ -157,7 +157,7 @@ export default function EncargadoPage() {
       })
     })
     return () => unsubs.forEach(u => u())
-  }, [cantidadMesas])
+  }, [localId, cantidadMesas])
 
   // ── Sonidos + notificaciones ──────────────────────────────────────────────────
   useEffect(() => {
