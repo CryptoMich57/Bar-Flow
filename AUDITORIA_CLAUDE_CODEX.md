@@ -102,7 +102,7 @@ La separación estructural por `localId` está bien encaminada y `rutas.js` evit
 
 ### AUD-003 — P0 Crítico — El “modo soporte de solo lectura” se puede eludir
 
-**Estado:** Pendiente
+**Estado:** Resuelto
 
 **Evidencia:** `PuertaDeAcceso.jsx:13-14` y `useSesion.jsx:79-80` dejan entrar al superadmin a todas las vistas. Solo `EncargadoPage.jsx` consulta `soporte`; desde sus botones (`EncargadoPage.jsx:429-430`) se accede a Mozo/Cocina, cuyas acciones no se deshabilitan. Además, `comensalDe()` considera comensal a cualquier usuario autenticado y las reglas conceden al admin escrituras sobre carta, configuración, historial y empleados.
 
@@ -110,7 +110,55 @@ La separación estructural por `localId` está bien encaminada y `rutas.js` evit
 
 **Solución requerida:** separar permisos de plataforma y soporte; imponer solo lectura en reglas/backend, no solo en UI; bloquear o adaptar también Mozo/Cocina; crear sesiones de soporte con motivo, caducidad y registro. Para lecturas sensibles, evaluar Cloud Audit Logs/Data Access o un backend que audite cada consulta.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** Confirmado, y el problema de fondo era peor de lo que se comunicó
+en su momento. `comensalDe()` tenía un comentario que decía "sesión anónima" pero el código
+era `logueado() && localActivo()`. Es decir: **cualquier cuenta con sesión contaba como
+comensal**, incluido el admin de la plataforma, que por esa vía podía escribir mesas y
+pedidos de un negocio ajeno aunque la interfaz le escondiera los botones. La afirmación
+previa de que soporte "no podía liberar una mesa ni confirmar un pago" era falsa: las reglas
+lo permitían.
+
+Correcciones:
+
+1. `comensalDe()` → `esComensal()`, que ahora exige
+   `request.auth.token.firebase.sign_in_provider == 'anonymous'`. El proveedor lo firma
+   Firebase y no lo elige el cliente, así que sirve como frontera real. El personal usa
+   Google y entra por `esPersonal()`; la plataforma no entra por ninguna de las dos.
+
+2. Separación de planos. La plataforma conserva únicamente lo que le corresponde:
+   listar locales, y actualizar o dar de baja el documento `locales/{localId}` (plan y
+   estado). Perdió toda escritura sobre datos del cliente: carta, configuración, mesas,
+   pedidos, mensajes, llamadas, historial, empleados, invitaciones y punteros de usuario.
+   Lectura la mantiene, que es lo que soporte necesita.
+
+   La baja de `empleados` merece mención aparte: si la plataforma pudiera crear un
+   encargado, tendría una puerta de entrada silenciosa a cualquier negocio. Un cliente que
+   se queda sin acceso se resuelve desde la consola de Firebase, que sí deja rastro en los
+   audit logs de Google Cloud.
+
+3. UI: `MozoPage` y `CocinaPage` ahora consumen `useAccesoActual()` igual que
+   `EncargadoPage`. En modo soporte muestran el cartel correspondiente, reemplazan los
+   botones de estado por el estado en texto y ocultan entregar, resolver llamada, marcar
+   cobrada y la pestaña de tomar pedido.
+
+4. Efecto colateral que había que cubrir: con `esComensal` restringido a sesiones anónimas,
+   una cuenta de Google sin ficha en ese local que abriera un QR quedaba sin permisos y la
+   pantalla no cargaba en silencio. `ZonaCliente` ahora lo detecta y ofrece cerrar sesión
+   para pedir como cliente.
+
+**Archivos:** `firestore.rules`, `src/App.jsx`, `src/pages/MozoPage.jsx`,
+`src/pages/CocinaPage.jsx`.
+
+**Pruebas:** reglas compiladas y desplegadas a `barflow-hexagroup`. Verificación contra la
+base real con sesión anónima: leer y escribir la propia mesa `PERMITIDO`; leer carta
+`PERMITIDO`; editar carta `DENEGADO`; leer historial `DENEGADO`. `npm run build` correcto.
+
+**Riesgo pendiente:** no se pudo ejecutar la matriz desde una sesión de superadmin, que
+requiere la cuenta de Google del operador. Queda para validación manual. Lo que la
+auditoría pide sobre sesiones de soporte con motivo, caducidad y auditoría de cada lectura
+**no está hecho** y no puede hacerse solo con reglas: necesita backend. Depende de Blaze,
+igual que `AUD-001` y `AUD-002`. Lo entregado acota el poder de soporte a lectura; no lo
+deja trazable.
 
 ### AUD-004 — P0 Bloqueante — Crear invitaciones falla con las reglas actuales
 

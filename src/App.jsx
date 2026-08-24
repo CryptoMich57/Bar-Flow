@@ -8,7 +8,8 @@ import RegistroPage from './pages/RegistroPage'
 import AdminPage from './pages/AdminPage'
 import PuertaDeAcceso from './components/PuertaDeAcceso'
 import { LocalProvider, useLocal } from './utils/LocalContext'
-import { useSesion } from './utils/useSesion'
+import { useSesion, useAcceso } from './utils/useSesion'
+import { cerrarSesion } from './firebase/auth'
 
 // ============================================================
 //  RUTAS
@@ -24,7 +25,8 @@ import { useSesion } from './utils/useSesion'
 // rechazan cada lectura.
 function ZonaCliente({ children }) {
   const { user, cargando, error } = useSesion()
-  const { local, cargando: cargandoLocal } = useLocal()
+  const { localId, local, cargando: cargandoLocal } = useLocal()
+  const { rol, cargando: cargandoRol } = useAcceso(localId, ['cocina', 'mozo'])
 
   if (error) return (
     <div className="pantallaEstado">
@@ -47,6 +49,26 @@ function ZonaCliente({ children }) {
   if (local.estado === 'suspendido') return (
     <div className="pantallaEstado">
       <p>{local.nombre} no esta recibiendo pedidos por la app en este momento.</p>
+    </div>
+  )
+
+  // Las reglas definen "comensal" como una sesion ANONIMA. Si alguien abre
+  // el QR con una cuenta de Google y no trabaja en este local —personal de
+  // otro bar, o alguien de la plataforma— no va a poder leer ni escribir la
+  // mesa. Mejor decirselo que dejarlo mirando una pantalla que no carga.
+  if (!user.isAnonymous && !rol && !cargandoRol) return (
+    <div className="pantallaEstado">
+      <div style={{textAlign:'center', maxWidth:340}}>
+        <p>Estas usando la app con la cuenta <strong>{user.email}</strong>.</p>
+        <p style={{color:'var(--text3)', fontSize:'0.88em', marginTop:8}}>
+          Para pedir como cliente hace falta salir de esa sesion. Tus datos de
+          trabajo no se pierden: volves a entrar cuando quieras.
+        </p>
+        <button className="btn btn-gold" style={{marginTop:16}}
+          onClick={() => cerrarSesion()}>
+          Salir y pedir como cliente
+        </button>
+      </div>
     </div>
   )
 

@@ -4,6 +4,7 @@ import { getCopyright } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
 import { colPedidos, refPedido, colHistorial } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
+import { useAccesoActual } from '../utils/AccesoContext'
 import styles from './CocinaPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
@@ -17,6 +18,8 @@ export default function CocinaPage() {
   // de Firebase; esta vista ya se renderiza solo si el rol es valido
   // PARA ESTE local. El localId sale de la URL, no de la sesion.
   const { localId, nombre: nombreBar, logo } = useLocal()
+  // soporte = plataforma mirando el local de un cliente. Ve, no opera.
+  const { soporte } = useAccesoActual()
   const [cantidadMesas, setCantidadMesas] = useState(10)
 
   useEffect(() => {
@@ -151,6 +154,19 @@ export default function CocinaPage() {
         </div>
       </header>
 
+      {soporte && (
+        <div className="card" style={{
+          margin:'12px 16px 0', borderLeft:'3px solid var(--gold)',
+          display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
+        }}>
+          <span style={{fontSize:'1.2em'}}>🛠️</span>
+          <span style={{fontSize:'0.85em', color:'var(--text2)'}}>
+            <strong style={{color:'var(--gold)'}}>Modo soporte.</strong>{' '}
+            Solo lectura: las reglas no dejan operar el local desde la plataforma.
+          </span>
+        </div>
+      )}
+
       {/* Tabs */}
       <nav className={styles.tabs}>
         <button className={`${styles.tab} ${tab==='activos'?styles.tabActivo:''}`} onClick={() => setTab('activos')}>
@@ -173,21 +189,21 @@ export default function CocinaPage() {
                 <div className={`${styles.colHeader} ${styles.colRed}`}>⏳ Pendientes</div>
                 {pendientes.length === 0
                   ? <p className={styles.colVacio}>Todo al día</p>
-                  : pendientes.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={!!pedidosNuevos.current[p.id]} />)
+                  : pendientes.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={!!pedidosNuevos.current[p.id]} soloLectura={soporte} />)
                 }
               </div>
               <div className={styles.columna}>
                 <div className={`${styles.colHeader} ${styles.colYellow}`}>🔥 En preparación</div>
                 {enPrep.length === 0
                   ? <p className={styles.colVacio}>Ninguno</p>
-                  : enPrep.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={false} />)
+                  : enPrep.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={false} soloLectura={soporte} />)
                 }
               </div>
               <div className={styles.columna}>
                 <div className={`${styles.colHeader} ${styles.colGreen}`}>✅ Listos</div>
                 {listos.length === 0
                   ? <p className={styles.colVacio}>Ninguno</p>
-                  : listos.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={false} />)
+                  : listos.map(p => <PedidoCard key={p.id} pedido={p} onCambiar={cambiarEstadoItem} esNuevo={false} soloLectura={soporte} />)
                 }
               </div>
             </div>
@@ -231,7 +247,7 @@ export default function CocinaPage() {
   )
 }
 
-function PedidoCard({ pedido, onCambiar, esNuevo = false }) {
+function PedidoCard({ pedido, onCambiar, esNuevo = false , soloLectura }) {
   return (
     <div className={`${styles.card} ${esNuevo ? 'cardNuevo' : 'fadeUp'}`}>
       <div className={styles.cardHeader}>
@@ -249,14 +265,18 @@ function PedidoCard({ pedido, onCambiar, esNuevo = false }) {
               {item.nota && <span className={styles.itemNota}>📝 {item.nota}</span>}
             </div>
           </div>
-          <div className={styles.itemBtns}>
-            <button className={`${styles.btn} ${item.estado==='pendiente'?styles.btnRed:''}`}
-              onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'pendiente')}>⏳</button>
-            <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
-              onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'en_preparacion')}>🔥</button>
-            <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
-              onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'listo')}>✅</button>
-          </div>
+          {soloLectura ? (
+            <span style={{color:'var(--text3)', fontSize:'0.75em'}}>{item.estado}</span>
+          ) : (
+            <div className={styles.itemBtns}>
+              <button className={`${styles.btn} ${item.estado==='pendiente'?styles.btnRed:''}`}
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'pendiente')}>⏳</button>
+              <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'en_preparacion')}>🔥</button>
+              <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'listo')}>✅</button>
+            </div>
+          )}
         </div>
       ))}
     </div>

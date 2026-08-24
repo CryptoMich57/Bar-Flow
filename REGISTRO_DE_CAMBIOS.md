@@ -17,6 +17,29 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Soporte de plataforma acotado a solo lectura
+
+- **IDs:** `AUD-003` (Resuelto).
+- **Archivos:** `firestore.rules`, `src/App.jsx`, `src/pages/MozoPage.jsx`,
+  `src/pages/CocinaPage.jsx`.
+- **Cambio:** el hallazgo era correcto y además destapó algo que se había comunicado mal:
+  `comensalDe()` decía "sesión anónima" en el comentario pero exigía solo `logueado()`, así
+  que el admin de la plataforma calificaba como comensal y **podía escribir mesas y pedidos
+  de cualquier negocio**. Se reescribió como `esComensal()`, que exige que el proveedor de
+  acceso sea anónimo. La plataforma quedó con lectura sobre los datos del cliente y
+  escritura únicamente sobre el documento del local (plan y estado). Mozo y Cocina ahora
+  respetan el modo soporte igual que Encargado.
+- **Validación:** reglas compiladas y desplegadas; matriz contra la base real con sesión
+  anónima (escribir mesa propia `PERMITIDO`, editar carta `DENEGADO`, leer historial
+  `DENEGADO`); `npm run build` correcto.
+- **Pendiente / riesgos:** falta correr la matriz desde una sesión de superadmin real
+  (requiere la cuenta del operador). Las sesiones de soporte con motivo, caducidad y
+  auditoría por lectura que pide el hallazgo **no están**: necesitan backend y quedan
+  atadas a Blaze, junto con `AUD-001`, `AUD-002` y `AUD-005`. Lo entregado acota el poder;
+  no lo hace trazable.
+- **Corrección de afirmaciones previas:** se había dicho que en modo soporte no se podía
+  liberar una mesa ni confirmar un pago. Era falso a nivel de reglas. Ahora sí lo es.
+
 ### 2026-08-24 — Claude — Regresiones introducidas en la conversión multi-local
 
 - **IDs:** `AUD-004` (Resuelto), `AUD-007` (Resuelto).

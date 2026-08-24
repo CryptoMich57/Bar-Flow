@@ -5,6 +5,7 @@ import { suscribirConfiguracion } from '../firebase/configuracion'
 import { suscribirCarta, agregarPedidoExtra } from '../firebase/mesa'
 import { refMesa, colPedidos, refPedido, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
+import { useAccesoActual } from '../utils/AccesoContext'
 import styles from './MozoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
@@ -20,6 +21,8 @@ const CATEGORIAS = {
 
 export default function MozoPage() {
   const { localId, nombre: nombreBar, logo } = useLocal()
+  // soporte = plataforma mirando el local de un cliente. Ve, no opera.
+  const { soporte } = useAccesoActual()
   const [mozoActivo, setMozoActivo]       = useState(null)
   const [mesas, setMesas]                 = useState({})
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
@@ -275,7 +278,7 @@ export default function MozoPage() {
         {[
           { key: 'alertas',  label: '🔔 Alertas',   badge: totalAlertas },
           { key: 'mesas',    label: '🏠 Mis mesas',  badge: 0 },
-          { key: 'pedido',   label: '📋 Tomar pedido', badge: 0 },
+          ...(soporte ? [] : [{ key: 'pedido', label: '📋 Tomar pedido', badge: 0 }]),
         ].map(t => (
           <button key={t.key} className={`${styles.tab} ${tab===t.key?styles.tabActivo:''}`} onClick={() => setTab(t.key)}>
             {t.label}
@@ -283,6 +286,19 @@ export default function MozoPage() {
           </button>
         ))}
       </nav>
+
+      {soporte && (
+        <div className="card" style={{
+          margin:'12px 16px 0', borderLeft:'3px solid var(--gold)',
+          display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
+        }}>
+          <span style={{fontSize:'1.2em'}}>🛠️</span>
+          <span style={{fontSize:'0.85em', color:'var(--text2)'}}>
+            <strong style={{color:'var(--gold)'}}>Modo soporte.</strong>{' '}
+            Solo lectura: las reglas no dejan operar el local desde la plataforma.
+          </span>
+        </div>
+      )}
 
       {/* ── TAB ALERTAS ────────────────────────────────────────────────────── */}
       {tab === 'alertas' && (
@@ -304,7 +320,7 @@ export default function MozoPage() {
                         <span style={{fontSize:'0.82em', color:'var(--text2)'}}>{l.cliente}</span>
                       </div>
                       <p style={{fontSize:'0.9em', margin:'8px 0'}}>{l.nota}</p>
-                      <button className={styles.resolverBtn} onClick={() => resolverLlamada(l.mesaId, l.id)}>✓ Resolver</button>
+                      {!soporte && <button className={styles.resolverBtn} onClick={() => resolverLlamada(l.mesaId, l.id)}>✓ Resolver</button>}
                     </div>
                   ))}
                 </section>
@@ -319,9 +335,11 @@ export default function MozoPage() {
                       <div className={styles.cardHeader}>
                         <span className={styles.mesaTag}>Mesa {p.mesaId}</span>
                         {personasDe(p.mesaId)}
-                        <button className={styles.entregarBtn} onClick={() => marcarEntregado(p.mesaId, p.id)}>
-                          Marcar entregado ✓
-                        </button>
+                        {!soporte && (
+                          <button className={styles.entregarBtn} onClick={() => marcarEntregado(p.mesaId, p.id)}>
+                            Marcar entregado ✓
+                          </button>
+                        )}
                       </div>
                       {p.items.map((item, i) => (
                         <div key={i} className={styles.itemRow}>
@@ -350,12 +368,16 @@ export default function MozoPage() {
                             <span className={styles.cantidad}>{item.cantidad}×</span>
                             <span>{item.nombre}</span>
                           </div>
-                          <div className={styles.itemBtns}>
-                            <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
-                              onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'en_preparacion')}>🔥</button>
-                            <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
-                              onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'listo')}>✅</button>
-                          </div>
+                          {soporte ? (
+                            <span style={{color:'var(--text3)', fontSize:'0.75em'}}>{item.estado}</span>
+                          ) : (
+                            <div className={styles.itemBtns}>
+                              <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
+                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'en_preparacion')}>🔥</button>
+                              <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
+                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'listo')}>✅</button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -380,9 +402,11 @@ export default function MozoPage() {
                         <span>Total: <strong>${((mesa.total_acumulado||0)+(mesa.propina||0)).toLocaleString()}</strong></span>
                         {mesa.propina>0 && <span style={{color:'var(--green)',fontSize:'0.82em'}}>Propina: ${mesa.propina.toLocaleString()}</span>}
                       </div>
-                      <button className={styles.cobradoBtn} onClick={() => marcarMesaCobrada(mesa.mesa_numero)}>
-                        ✅ Mesa cobrada — esperando confirmación
-                      </button>
+                      {!soporte && (
+                        <button className={styles.cobradoBtn} onClick={() => marcarMesaCobrada(mesa.mesa_numero)}>
+                          ✅ Mesa cobrada — esperando confirmación
+                        </button>
+                      )}
                     </div>
                   ))}
                 </section>

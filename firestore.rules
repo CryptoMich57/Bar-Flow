@@ -80,9 +80,17 @@ service cloud.firestore {
         && ficha(localId).rol == 'encargado';
     }
 
-    // El comensal: sesion anonima en un local que esta funcionando.
-    function comensalDe(localId) {
-      return logueado() && localActivo(localId);
+    // El comensal es, literalmente, una sesion ANONIMA en un local que
+    // esta funcionando. Antes esta funcion decia solo logueado(), lo que
+    // convertia en "comensal" a cualquier cuenta con sesion: al personal
+    // de otro bar y —peor— al admin de la plataforma, que asi podia
+    // escribir mesas y pedidos de un negocio ajeno pese a que la UI le
+    // escondia los botones. El proveedor de acceso lo firma Firebase y
+    // no lo elige el cliente, asi que sirve como frontera real.
+    function esComensal(localId) {
+      return logueado()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous'
+        && localActivo(localId);
     }
 
     function esTitular(localId) {
@@ -146,49 +154,54 @@ service cloud.firestore {
 
       // -- CARTA ----------------------------------------------
       match /carta/{itemId} {
-        allow read:  if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-        allow write: if esEncargado(localId) || esAdminPlataforma();
+        allow read:  if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+        // La plataforma NO edita la carta de un cliente. Soporte mira.
+        allow write: if esEncargado(localId);
       }
 
       // -- CONFIGURACION DEL LOCAL ----------------------------
       // Datos de transferencia, mozos, cantidad de mesas.
       match /sistema/{docId} {
-        allow read:  if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-        allow write: if esEncargado(localId) || esAdminPlataforma();
+        allow read:  if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+        // Datos de transferencia y mozos son del negocio, no nuestros.
+        allow write: if esEncargado(localId);
       }
 
       // -- MESAS ----------------------------------------------
-      // El comensal escribe en su mesa (carrito, pedidos, chat,
-      // llamadas) sin registrarse. Borrar queda para el personal.
+      // Operar una mesa es del comensal sentado en ella y del personal
+      // del local. La plataforma lee para dar soporte y nada mas.
       match /mesas/{mesaId} {
-        allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-        allow create, update: if comensalDe(localId) || esPersonal(localId);
-        allow delete:         if esEncargado(localId) || esAdminPlataforma();
+        allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow create, update: if esComensal(localId) || esPersonal(localId);
+        allow delete:         if esEncargado(localId);
 
         match /pedidos/{pedidoId} {
-          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create, update: if comensalDe(localId) || esPersonal(localId);
-          allow delete:         if esPersonal(localId) || esAdminPlataforma();
+          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create, update: if esComensal(localId) || esPersonal(localId);
+          allow delete:         if esPersonal(localId);
         }
 
         match /mensajes/{mensajeId} {
-          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create:         if comensalDe(localId) || esPersonal(localId);
-          allow update, delete: if esPersonal(localId) || esAdminPlataforma();
+          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if esComensal(localId) || esPersonal(localId);
+          allow update, delete: if esPersonal(localId);
         }
 
         match /llamadas/{llamadaId} {
-          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create:         if comensalDe(localId) || esPersonal(localId);
-          allow update, delete: if esPersonal(localId) || esAdminPlataforma();
+          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if esComensal(localId) || esPersonal(localId);
+          allow update, delete: if esPersonal(localId);
         }
       }
 
       // -- HISTORIAL Y CAJA -----------------------------------
       // Facturacion cerrada: ningun comensal la ve ni la toca.
+      // La caja del cliente se mira, no se toca: un cierre creado o borrado
+      // por la plataforma seria plata movida sin que el negocio lo sepa.
       match /historial/{docId} {
-        allow read, create:   if esPersonal(localId) || esAdminPlataforma();
-        allow update, delete: if esEncargado(localId) || esAdminPlataforma();
+        allow read:           if esPersonal(localId) || esAdminPlataforma();
+        allow create:         if esPersonal(localId);
+        allow update, delete: if esEncargado(localId);
       }
 
       // -- EMPLEADOS ------------------------------------------
@@ -209,8 +222,11 @@ service cloud.firestore {
         //  3. la plataforma, dando soporte.
         // El encargado NO crea fichas a mano: con Google no puede
         // crearle la cuenta a otro, asi que invita y la persona entra.
-        allow create: if esAdminPlataforma()
-          || (uid == miUid()
+        // La plataforma tampoco reparte roles: si diera de alta un
+        // encargado, tendria una puerta de entrada silenciosa a cualquier
+        // negocio. Un cliente que se queda sin acceso se resuelve desde la
+        // consola de Firebase, que si deja rastro en los audit logs.
+        allow create: if (uid == miUid()
               && esTitular(localId)
               && request.resource.data.rol == 'encargado')
           || (uid == miUid()
@@ -220,15 +236,13 @@ service cloud.firestore {
         // El encargado administra a su equipo. No puede cambiarse el
         // rol a si mismo ni auto-desactivarse: evita que el local se
         // quede sin nadie que pueda administrarlo.
-        allow update: if esAdminPlataforma()
-          || (esEncargado(localId)
-              && request.resource.data.rol in ['encargado', 'cocina', 'mozo']
-              && (uid != miUid()
-                  || (request.resource.data.rol == resource.data.rol
-                      && request.resource.data.activo == true)));
+        allow update: if esEncargado(localId)
+          && request.resource.data.rol in ['encargado', 'cocina', 'mozo']
+          && (uid != miUid()
+              || (request.resource.data.rol == resource.data.rol
+                  && request.resource.data.activo == true));
 
-        allow delete: if esAdminPlataforma()
-          || (esEncargado(localId) && uid != miUid());
+        allow delete: if esEncargado(localId) && uid != miUid();
       }
 
       // -- INVITACIONES DEL LOCAL -----------------------------
@@ -244,9 +258,8 @@ service cloud.firestore {
           && request.resource.data.rol in ['encargado', 'cocina', 'mozo'];
 
         // La borra el encargado (se arrepintio) o la propia persona
-        // al canjearla.
+        // al canjearla. La plataforma no reparte invitaciones.
         allow delete: if esEncargado(localId)
-          || esAdminPlataforma()
           || (logueado() && email == miEmail());
       }
     }
@@ -274,8 +287,7 @@ service cloud.firestore {
         && resource.data.local_id == request.resource.data.local_id;
 
       allow delete: if (logueado() && email == miEmail())
-        || esEncargado(resource.data.local_id)
-        || esAdminPlataforma();
+        || esEncargado(resource.data.local_id);
     }
 
     // -- INDICE GLOBAL uid -> local ---------------------------
@@ -288,12 +300,10 @@ service cloud.firestore {
 
       // Se escribe al registrarse (uno mismo) o cuando el encargado
       // da de alta a alguien de su local.
-      allow create, update: if esAdminPlataforma()
-        || (uid == miUid() && request.resource.data.local_id is string)
+      allow create, update: if (uid == miUid() && request.resource.data.local_id is string)
         || esEncargado(request.resource.data.local_id);
 
-      allow delete: if esAdminPlataforma()
-        || esEncargado(resource.data.local_id);
+      allow delete: if esEncargado(resource.data.local_id);
     }
 
     // -- ADMINS DE LA PLATAFORMA ------------------------------
