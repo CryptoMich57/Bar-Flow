@@ -60,6 +60,7 @@ export default function EncargadoPage() {
   const { agregar: notif, NotifBanner } = useNotificaciones()
   const pedidosAnteriores = useRef({})
   const llamadasAvisadas = useRef({})
+  const mesasConLlamadasListas = useRef(new Set())
   const cuentasAnteriores = useRef({})
   const mensajesAnteriores = useRef({})
 
@@ -166,6 +167,15 @@ export default function EncargadoPage() {
   // esto, no.
   useEffect(() => {
     if (cantidadMesas === 0) return
+
+    // Cada mesa trae su primer snapshot cuando quiere. Si la marca de
+    // "ya arranque" fuera una sola para todas, alcanzaria con que la mesa 1
+    // registrara algo para que el primer snapshot de la mesa 2 sonara por
+    // llamadas que ya estaban ahi. Por eso la inicializacion se lleva POR
+    // MESA, y ambos registros se reinician al cambiar de local.
+    llamadasAvisadas.current = {}
+    mesasConLlamadasListas.current = new Set()
+
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num =>
       onSnapshot(colLlamadas(localId, num), snap => {
@@ -173,22 +183,25 @@ export default function EncargadoPage() {
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(l => l.estado === 'pendiente')
 
-        // El primer snapshot trae lo que ya estaba: se registra sin sonar,
-        // para no disparar una salva de alertas al abrir la pantalla.
-        const primeraVez = Object.keys(llamadasAvisadas.current).length === 0
+        // El primer snapshot de ESTA mesa trae lo que ya estaba: se registra
+        // sin sonar, para no disparar una salva de alertas al abrir la pantalla.
+        const yaArranco = mesasConLlamadasListas.current.has(num)
+
         pendientes.forEach(l => {
           if (!llamadasAvisadas.current[l.id]) {
-            if (!primeraVez) {
+            if (yaArranco) {
               sonidoLlamadaMozo()
               notif(`✋ Mesa ${num}: ${l.nota || 'te llama'}`, 'Yellow', 5000)
             }
             llamadasAvisadas.current[l.id] = true
           }
         })
+
+        mesasConLlamadasListas.current.add(num)
       })
     )
     return () => unsubs.forEach(u => u())
-  }, [localId, cantidadMesas])
+  }, [localId, cantidadMesas, notif])
 
   // ── Sonidos + notificaciones ──────────────────────────────────────────────────
   useEffect(() => {

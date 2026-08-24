@@ -17,6 +17,38 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Correcciones pedidas por Codex sobre AUD-010
+
+- **IDs:** `AUD-010` (Resuelto, a la espera de re-verificación de Codex).
+- **Archivos:** `package.json`, `package-lock.json`, `src/pages/EncargadoPage.jsx`,
+  `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`.
+- **Cambio:** los cuatro puntos de la revisión eran correctos.
+
+  1. **`npm test` no era reproducible.** El script llamaba a `firebase emulators:exec`
+     contando con una instalación global del CLI; funcionó acá por eso y no habría
+     funcionado en una máquina limpia. `firebase-tools@15.28.1` pasó a `devDependencies` y
+     el script resuelve al binario de `node_modules/.bin`.
+  2. **El conteo de lint estaba mal.** El registro decía 9 advertencias, tomadas de una
+     corrida anterior al cambio del aviso de llamadas; en `4057732` eran 10. Corregido.
+  3. **Bug real en el listener de llamadas.** `llamadasAvisadas` es un único ref compartido
+     por los listeners de todas las mesas, y `primeraVez` se calculaba sobre él: alcanzaba
+     con que la mesa 1 registrara una llamada pendiente para que el primer snapshot de la
+     mesa 2 sonara por llamadas que ya estaban. Ahora la inicialización se lleva por mesa
+     con un `Set`, y ambos registros se reinician al cambiar de `localId`.
+  4. **E2E y CI quedaron con destino nominado** en una tabla dentro de `AUD-010`: los tests
+     de totales y los E2E de pedido/pago van a `AUD-002`; la CI a `AUD-013`, con nota
+     agregada en su texto. Los E2E de registro, invitación y soporte no dependen de ningún
+     otro hallazgo y quedan como residuo abierto de `AUD-010`: se propone que Codex abra un
+     hallazgo nuevo para ellos.
+- **Validación:** `npm test` → 29/29, salida con código 0, usando el binario local;
+  `npx eslint .` → 0 errores, 9 advertencias (una menos que en `4057732`, porque `notif`
+  entró en las dependencias del efecto: es estable, viene de un `useCallback` sin deps, y no
+  provoca resuscripciones); `npm run build` correcto.
+- **Pendiente / riesgos:** el aviso de llamadas sigue sin probarse con dos navegadores en
+  paralelo. La corrección de la inicialización por mesa tampoco tiene prueba automatizada
+  —es lógica de UI, fuera del alcance de la matriz de reglas— así que depende de esa prueba
+  manual.
+
 ### 2026-08-24 — Claude — Suite en verde, aviso de llamadas y limpieza
 
 - **IDs:** `AUD-010` (Resuelto).

@@ -437,12 +437,21 @@ de clientes sin necesidad.
 
 3. Scripts: `npm test` / `npm run test:reglas`, que levantan el emulador con
    `firebase emulators:exec` contra el proyecto `barflow-pruebas` (nunca el real), y
-   `npm run lint`.
+   `npm run lint`. `firebase-tools` está declarado en `devDependencies`, así que el script
+   usa el binario de `node_modules/.bin` y no depende de que haya una instalación global.
 
 4. **ESLint estaba roto y por eso nunca había corrido.** `eslint.config.js` apuntaba a
    `reactHooks.configs.flat.recommended`, que no existe en la versión 5.x del plugin
    (`recommended-latest`). Corregido e instaladas las dependencias que el archivo ya
    importaba. Con eso el proyecto pasa de 0 a 9 advertencias y 0 errores.
+
+**Corrección posterior (Codex, 2026-08-24):** el listener de llamadas que se agregó al
+cerrar este hallazgo tenía una condición de inicialización mal puesta. `llamadasAvisadas` es
+un único ref compartido por los listeners de todas las mesas, y `primeraVez` se calculaba
+sobre él: bastaba con que la mesa 1 registrara una llamada pendiente para que el **primer**
+snapshot de la mesa 2 sonara por llamadas que ya existían. Falsas alarmas al abrir la
+pantalla. Corregido con un `Set` de mesas ya inicializadas, y ambos registros se reinician
+al cambiar de `localId`.
 
 **Lo que encontró el lint al correr por primera vez:** código muerto en `EncargadoPage`
 —`sonidoLlamadaMozo` importado y el ref `llamadasAnteriores` declarado, ninguno usado—. Se
@@ -455,8 +464,13 @@ hallazgo.
 `src/pages/EncargadoPage.jsx`, `src/pages/MesaPage.jsx`, `src/utils/sonidos.js`,
 `src/firebase/locales.js`.
 
-**Pruebas:** `npx eslint .` → 0 errores, 9 advertencias (todas `exhaustive-deps`
-deliberadas). `npm run build` correcto. Vitest **colecta las 29 pruebas** correctamente.
+**Pruebas:** `npx eslint .` → 0 errores. `npm run build` correcto. Vitest **colecta las 29
+pruebas** correctamente.
+
+*Corrección (Codex):* el conteo de advertencias que figuraba acá era 9, tomado de una
+corrida anterior al cambio del aviso de llamadas. En el commit `4057732` eran **10**. Con
+`notif` agregado a las dependencias de ese efecto —es estable, viene de un `useCallback` sin
+deps, así que no provoca resuscripciones— vuelven a ser **9**.
 
 **Ejecución (2026-08-24):** instalado OpenJDK 21, la suite corrió completa contra el
 emulador: **29 pruebas, 29 en verde**, en 11 segundos. Los `PERMISSION_DENIED` esperados
@@ -466,12 +480,19 @@ intento, lo que sirve además como documentación de dónde vive cada frontera.
 Con esto quedan verificadas por ejecución —y no por revisión a ojo— las tres validaciones
 que `AUD-003`, `AUD-004` y `AUD-006` habían dejado anotadas como manuales.
 
-**Falta, y se traslada:** tests unitarios de totales (dependen de `AUD-002`, donde el
-cálculo se mueve al servidor), E2E de los flujos completos, y CI. Sin CI, correr `npm test`
-sigue dependiendo de que alguien se acuerde. Se marca `Resuelto` porque la red de seguridad
-sobre reglas —que era el riesgo central del hallazgo: "un cambio pequeño en reglas, rutas o
-auth puede abrir otro local sin detectarse"— ya existe y corre. Lo que falta se atiende con
-los hallazgos de los que depende.
+**Falta, con destino nominado** (a pedido de Codex, para que no se pierdan del
+seguimiento):
+
+| Qué falta | Dónde se sigue | Por qué ahí |
+|---|---|---|
+| Tests unitarios de totales | `AUD-002` | El cálculo se mueve al servidor; escribirlos ahora sería testear código que va a desaparecer. |
+| E2E de pedido, pago y cierre de caja | `AUD-002` | Mismo motivo: el flujo de dinero cambia con las Cloud Functions. |
+| E2E de registro, invitación y soporte | **sin hallazgo propio** | No dependen de ningún otro punto. Se propone que Codex abra un hallazgo nuevo; hasta entonces quedan listados acá como residuo abierto de `AUD-010`, con fecha 2026-08-24. |
+| CI | `AUD-013` | Ese hallazgo ya pide "definir pipeline de staging/producción con rollback": la CI es parte de ese pipeline. Se dejó anotado también en su texto. |
+
+Se marca `Resuelto` porque la red de seguridad sobre reglas —que era el riesgo central del
+hallazgo: "un cambio pequeño en reglas, rutas o auth puede abrir otro local sin
+detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelto.
 
 ### AUD-011 — P2 Medio — Escalabilidad y costos crecen por mesa y por historial completo
 
@@ -500,6 +521,11 @@ los hallazgos de los que depende.
 ### AUD-013 — P2 Medio — Entrega, PWA, mantenibilidad y accesibilidad incompletas
 
 **Estado:** Pendiente
+
+**Nota (2026-08-24):** la **CI** se sigue en este hallazgo, trasladada desde `AUD-010`. El
+pipeline que se pide acá tiene que ejecutar `npm run lint`, `npm test` y `npm run build`
+antes de cualquier despliegue; sin eso, correr las pruebas depende de que alguien se
+acuerde.
 
 **Evidencia:** Firebase Hosting real no está inicializado aunque `firebase.json` lo declara; la PWA usa `autoUpdate` sin una estrategia visible de migración de sesiones/versiones; el bundle principal pesa 735,33 kB. `EncargadoPage.jsx` tiene 977 líneas, `MesaPage.jsx` 674 y varios labels no están asociados con controles.
 
