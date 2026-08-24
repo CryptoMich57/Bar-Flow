@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['logo.png', 'apple-touch-icon.png', 'favicon.ico'],
       manifest: {
-        name:             'Qallary Coffe',
-        short_name:       'Qallary',
+        name:             'BarFlow',
+        short_name:       'BarFlow',
         description:      'Pedidos y atención digital para tu mesa',
         theme_color:      '#0a0a0a',
         background_color: '#0a0a0a',
