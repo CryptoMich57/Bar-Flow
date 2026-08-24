@@ -399,7 +399,7 @@ de clientes sin necesidad.
 
 ### AUD-010 — P1 Alto — No hay red de seguridad automatizada para reglas y flujos críticos
 
-**Estado:** Pendiente
+**Estado:** En progreso
 
 **Evidencia:** `package.json` solo define `dev`, `build` y `preview`; no hay tests, lint, emuladores automatizados ni CI. El build compila, pero no valida autorización ni comportamiento.
 
@@ -407,7 +407,66 @@ de clientes sin necesidad.
 
 **Solución requerida:** sumar Firebase Emulator Suite y tests de matriz rol × local × mesa × operación; tests unitarios de totales; E2E de registro, invitación, pedido, pago y soporte; lint y CI obligatorios.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** Entregado el emulador y la matriz de reglas; falta lo demás.
+
+**Lo hecho:**
+
+1. `firebase.json` declara los emuladores de Firestore (8080), Auth (9099) y la UI (4000).
+
+2. `tests/reglas.test.js`: **29 pruebas** con `@firebase/rules-unit-testing` sobre Vitest,
+   agrupadas por hallazgo. Casi todas son negativas —lo que NO se debe poder hacer—, que es
+   justamente lo que no se detecta usando la app a mano: una regla de más no rompe ninguna
+   pantalla, solo abre una puerta. Cubren:
+
+   - **Quién es comensal** (`AUD-001`/`AUD-003`): una sesión anónima opera su mesa; una
+     cuenta de Google sin ficha en ese local, no.
+   - **Aislamiento entre negocios**: la encargada del bar A no lee el historial del B, no
+     edita su carta y no da de alta empleados ahí.
+   - **Soporte solo lectura** (`AUD-003`): la plataforma lee carta, caja y mesas, lista el
+     padrón —que nadie más puede—, y tiene denegadas todas las escrituras sobre datos del
+     cliente, incluida la de repartir roles. Sí administra plan y estado del local.
+   - **Local suspendido**: congela a comensales y personal; la plataforma lo reactiva.
+   - **Invitaciones** (`AUD-004`): el encargado invita sin necesitar leer el índice global
+     —se verifica que esa lectura le sigue estando negada—; otro encargado no puede robarle
+     una invitación pendiente; el canje solo funciona con el rol invitado.
+   - **Email verificado** (`AUD-006`): la prueba negativa que había quedado pendiente. Un
+     token con `email_verified: false` no canjea la invitación de esa dirección ni la lee.
+   - **Escalada dentro del local**: un mozo no se asciende ni edita la carta; la encargada
+     no se quita el rol a sí misma; nadie se anota como superadmin; un local no puede nacer
+     activo ni a nombre de otra persona.
+
+3. Scripts: `npm test` / `npm run test:reglas`, que levantan el emulador con
+   `firebase emulators:exec` contra el proyecto `barflow-pruebas` (nunca el real), y
+   `npm run lint`.
+
+4. **ESLint estaba roto y por eso nunca había corrido.** `eslint.config.js` apuntaba a
+   `reactHooks.configs.flat.recommended`, que no existe en la versión 5.x del plugin
+   (`recommended-latest`). Corregido e instaladas las dependencias que el archivo ya
+   importaba. Con eso el proyecto pasa de 0 a 9 advertencias y 0 errores.
+
+**Lo que encontró el lint al correr por primera vez:** código muerto en `EncargadoPage`
+—`sonidoLlamadaMozo` importado y el ref `llamadasAnteriores` declarado, ninguno usado—. Se
+removió. Implica que **el encargado no recibe aviso sonoro cuando una mesa levanta la mano**,
+aunque sí lo recibe por pedidos, cuentas y mensajes. Se reporta como hueco funcional, no se
+agregó el sonido: es un cambio de comportamiento que no corresponde meter dentro de este
+hallazgo.
+
+**Archivos:** `firebase.json`, `package.json`, `eslint.config.js`, `tests/reglas.test.js`,
+`src/pages/EncargadoPage.jsx`, `src/pages/MesaPage.jsx`, `src/utils/sonidos.js`,
+`src/firebase/locales.js`.
+
+**Pruebas:** `npx eslint .` → 0 errores, 9 advertencias (todas `exhaustive-deps`
+deliberadas). `npm run build` correcto. Vitest **colecta las 29 pruebas** correctamente.
+
+**Por qué queda `En progreso`:** las pruebas **no se ejecutaron todavía**. El emulador de
+Firestore necesita un JDK y en esta máquina no hay Java instalado (`java: command not
+found`). Hasta que se instale, la matriz está escrita pero no verificada, y sería
+deshonesto marcar el hallazgo como resuelto: un test que nunca corrió no es una red de
+seguridad. Instalar el JDK es una modificación del sistema y queda para el operador.
+
+**Falta además,** de lo que pide el hallazgo: tests unitarios de totales (dependen de
+`AUD-002`, donde el cálculo se mueve al servidor), E2E de los flujos completos, y CI. Sin
+CI, correr `npm test` sigue dependiendo de que alguien se acuerde.
 
 ### AUD-011 — P2 Medio — Escalabilidad y costos crecen por mesa y por historial completo
 

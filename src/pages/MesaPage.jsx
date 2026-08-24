@@ -142,7 +142,7 @@ export default function MesaPage() {
       await ocuparMesa(localId, mesaId, nombre.trim(), dispositivoId, personas)
       guardarSesion(localId, mesaId, nombre.trim(), personas)
       setPaso('carta')
-    } catch (e) { setError('No se pudo conectar con la mesa. Intentá de nuevo.') }
+    } catch { setError('No se pudo conectar con la mesa. Intentá de nuevo.') }
     setCargando(false)
   }
 
@@ -157,7 +157,7 @@ export default function MesaPage() {
       })
       setLlamadoMozo(true); setNotaMozo(''); setShowLlamarMozo(false)
       setTimeout(() => setLlamadoMozo(false), 5000)
-    } catch (e) { setError('No se pudo enviar.') }
+    } catch { setError('No se pudo enviar.') }
     setCargando(false)
   }
 

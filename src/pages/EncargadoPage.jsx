@@ -19,7 +19,7 @@ import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '.
 import styles from './EncargadoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
+import { sonidoNuevoPedido, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
 import { cerrarSesion } from '../firebase/auth'
 
 // NUMS_MESAS se genera dinámicamente desde configDB
@@ -59,7 +59,6 @@ export default function EncargadoPage() {
   const [audioOn, setAudioOn] = useState(false)
   const { agregar: notif, NotifBanner } = useNotificaciones()
   const pedidosAnteriores = useRef({})
-  const llamadasAnteriores = useRef({})
   const cuentasAnteriores = useRef({})
   const mensajesAnteriores = useRef({})
 

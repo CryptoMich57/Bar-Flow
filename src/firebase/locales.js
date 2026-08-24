@@ -11,7 +11,7 @@
 //    quien las hace es admin del SaaS; si no, las reglas las rechazan.
 // ============================================================
 import {
-  getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  getDoc, getDocs, setDoc, updateDoc,
   onSnapshot, serverTimestamp, writeBatch, query, orderBy,
 } from 'firebase/firestore'
 import { db } from './config'

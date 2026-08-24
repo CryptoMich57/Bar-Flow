@@ -17,6 +17,34 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Emulador, matriz de reglas y lint operativo
+
+- **IDs:** `AUD-010` (En progreso). Cubre además las pruebas negativas que habían quedado
+  anotadas como pendientes en `AUD-003`, `AUD-004` y `AUD-006`.
+- **Archivos:** `firebase.json`, `package.json`, `eslint.config.js`, `tests/reglas.test.js`,
+  `src/pages/EncargadoPage.jsx`, `src/pages/MesaPage.jsx`, `src/utils/sonidos.js`,
+  `src/firebase/locales.js`.
+- **Cambio:** se declararon los emuladores de Firestore, Auth y UI, y se escribieron 29
+  pruebas de reglas con `@firebase/rules-unit-testing` sobre Vitest, agrupadas por hallazgo
+  y mayormente negativas. Incluyen las tres verificaciones que hasta ahora figuraban como
+  "queda para validación manual": que el soporte de plataforma no escriba datos del cliente,
+  que el encargado invite sin leer el índice global, y que un email sin verificar no pueda
+  canjear la invitación de otra persona. Se agregaron los scripts `npm test` y
+  `npm run lint`. ESLint estaba roto —la config apuntaba a `reactHooks.configs.flat`, que no
+  existe en el plugin 5.x— y por eso nunca había corrido; corregido, el proyecto queda en 0
+  errores.
+- **Validación:** `npx eslint .` → 0 errores, 9 advertencias deliberadas de
+  `exhaustive-deps`; `npm run build` correcto; Vitest colecta las 29 pruebas.
+- **Pendiente / riesgos:** **las pruebas no se ejecutaron.** El emulador de Firestore
+  necesita un JDK y esta máquina no tiene Java. Hasta instalarlo, la matriz está escrita
+  pero no verificada. Faltan también los tests unitarios de totales (atados a `AUD-002`),
+  los E2E y la CI.
+- **Hueco funcional detectado por el lint:** `EncargadoPage` importaba `sonidoLlamadaMozo` y
+  declaraba `llamadasAnteriores` sin usarlos. Se removió el código muerto. Implica que el
+  encargado **no recibe aviso sonoro cuando una mesa levanta la mano**, aunque sí lo recibe
+  por pedidos, cuentas y mensajes. Se reporta; no se agregó el sonido porque es un cambio de
+  comportamiento ajeno a este hallazgo.
+
 ### 2026-08-24 — Claude — La identidad del mozo deja de ser elegible
 
 - **IDs:** `AUD-008` (Resuelto).

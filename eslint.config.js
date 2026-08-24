@@ -5,12 +5,15 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'node_modules']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
       js.configs.recommended,
-      reactHooks.configs.flat.recommended,
+      // 'recommended-latest' es la forma flat en eslint-plugin-react-hooks 5.x.
+      // La config venia apuntando a configs.flat.recommended, que no existe en
+      // esta version: por eso eslint reventaba al arrancar.
+      reactHooks.configs['recommended-latest'],
       reactRefresh.configs.vite,
     ],
     languageOptions: {
@@ -24,6 +27,21 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Un catch vacio es deliberado en varios lugares: si falla el sonido o
+      // el parseo de una sesion vieja, no hay nada que hacer ni que avisar.
+      'no-empty': ['error', { allowEmptyCatch: true }],
     },
+  },
+  {
+    // Las pruebas de reglas corren en Node, no en el navegador.
+    files: ['tests/**/*.js', '*.config.js', 'seed.js'],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    // Estos archivos exportan a proposito el provider y su hook juntos: son
+    // dos mitades de la misma pieza y separarlos solo agregaria un archivo.
+    // El costo es perder fast refresh en ellos, que es aceptable.
+    files: ['src/utils/*Context.jsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])

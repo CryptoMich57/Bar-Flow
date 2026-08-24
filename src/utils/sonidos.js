@@ -36,7 +36,7 @@ const tono = (frecuencia, duracion = 0.3, volumen = 0.5, tipo = 'sine', delay = 
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duracion)
     osc.start(ctx.currentTime + delay)
     osc.stop(ctx.currentTime + delay + duracion + 0.05)
-  } catch (e) {}
+  } catch {}
 }
 
 // ── SONIDOS ────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export const activarAudio = () => {
     osc.start()
     osc.stop(ctx.currentTime + 0.001)
     ctx.resume().then(() => { audioActivado = true })
-  } catch (e) {}
+  } catch {}
 }
 
 export const estaActivado = () => audioActivado
