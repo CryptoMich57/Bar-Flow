@@ -1,42 +1,30 @@
 // ============================================================
-//  CONFIGURACIÓN MAESTRA — Solo el programador toca este archivo
-//  Cambiando aquí se actualiza TODO en la app automáticamente
+//  CONFIGURACION DE LA PLATAFORMA
+//
+//  Ojo: aca NO va nada propio de un bar. El nombre, el logo, los
+//  datos de transferencia, los mozos y la cantidad de mesas son de
+//  cada negocio y viven en la base, bajo locales/{localId}. Este
+//  archivo es solo lo que comparten todos los clientes del SaaS.
 // ============================================================
 
 export const APP_CONFIG = {
 
-  // ── IDENTIDAD DEL BAR ──────────────────────────────────────
-  bar: {
-    nombre:       "Qallary Coffe",               // Nombre que aparece en todas las vistas
-    slogan:       "Una experiencia única", // Subtítulo en la pantalla de bienvenida
-    logo:         "/logo.png",            // Ruta al logo (poné el archivo en /public/logo.png)
-    logoAlt:      "Logo del bar",
-    copyright:    "Hexa Group S.a.s",    // Aparece en el footer de todas las vistas
-    colorPrimario: "#c8a96e",            // Color dorado — cambiá esto y cambia todo
+  // ── LA PLATAFORMA ──────────────────────────────────────────
+  plataforma: {
+    nombre:    "BarFlow",
+    empresa:   "Hexa Group S.a.s",
+    sitio:     "hexagroup.com.ar",
+    version:   "2.0.0",
+    logo:      "/logo.png",          // Logo por defecto si el local no cargo el suyo
   },
 
-  // ── MESAS ──────────────────────────────────────────────────
-  mesas: {
-    cantidad: 17,   // Cuántas mesas tiene el local
-    // Los QR van a apuntar a /mesa/1, /mesa/2, ... /mesa/N
+  // ── VALORES POR DEFECTO DE UN LOCAL NUEVO ──────────────────
+  defaults: {
+    mesas: 10,
+    colorPrimario: "#c8a96e",
   },
 
-  // ── DATOS DE TRANSFERENCIA ─────────────────────────────────
-  transferencia: {
-    titular:  "Nombre del Titular",
-    banco:    "Nombre del Banco",
-    cbu:      "0000000000000000000000",
-    alias:    "MI.ALIAS.BAR",
-  },
-
-  // ── MOZOS ──────────────────────────────────────────────────
-  mozos: [
-    { id: "mozo_1", nombre: "Mozo Marcos" },
-    { id: "mozo_2", nombre: "Moza Eli" },
-    { id: "mozo_3", nombre: "Moza Fer" },
-  ],
-
-  // ── TEXTOS DE LA APP (modificables sin tocar código) ───────
+  // ── TEXTOS DE LA APP (iguales para todos los locales) ──────
   textos: {
     bienvenida: {
       titulo:    "Bienvenido",
@@ -60,10 +48,10 @@ export const APP_CONFIG = {
     }
   },
 
-  // ── PWA (nombre de la app instalada en el celular) ─────────
+  // ── PWA ────────────────────────────────────────────────────
   pwa: {
-    nombre:       "Mi Bar App",      // Nombre que aparece al instalar en el celular
-    nombreCorto:  "Bar",             // Nombre corto del ícono
+    nombre:       "BarFlow",
+    nombreCorto:  "BarFlow",
     descripcion:  "Pedidos desde tu mesa",
     colorTema:    "#0a0a0a",
     colorFondo:   "#0a0a0a",
@@ -71,18 +59,15 @@ export const APP_CONFIG = {
 
   // ── TEMA VISUAL ────────────────────────────────────────────
   tema: {
-    // Modo automático: 'auto' usa el sistema del celular (oscuro de noche, claro de día)
+    // 'auto' usa el sistema del celular (oscuro de noche, claro de día)
     // Opciones: 'oscuro' | 'claro' | 'auto'
     modo: 'auto',
   }
 }
 
 // ── Helpers ───────────────────────────────────────────────────
-export const getNombreBar   = () => APP_CONFIG.bar.nombre
-export const getSloganBar   = () => APP_CONFIG.bar.slogan
-export const getCopyright   = () => `© ${new Date().getFullYear()} ${APP_CONFIG.bar.copyright} — Todos los derechos reservados`
-export const getMozos       = () => APP_CONFIG.mozos
-export const getTransferencia = () => APP_CONFIG.transferencia
-export const getCantidadMesas = () => APP_CONFIG.mesas.cantidad
+export const getCopyright   = () => `© ${new Date().getFullYear()} ${APP_CONFIG.plataforma.empresa} — Todos los derechos reservados`
 export const getTextos      = () => APP_CONFIG.textos
-export const getLogo        = () => APP_CONFIG.bar.logo
+export const getLogoDefecto = () => APP_CONFIG.plataforma.logo
+export const getNombrePlataforma = () => APP_CONFIG.plataforma.nombre
+export const MESAS_POR_DEFECTO = APP_CONFIG.defaults.mesas

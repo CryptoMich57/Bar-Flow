@@ -4,8 +4,8 @@
 
 // Para usarlo: importalo en un componente temporal y llamá seedCarta()
 
-import { db } from './config'
-import { doc, setDoc } from 'firebase/firestore'
+import { setDoc } from 'firebase/firestore'
+import { refItemCarta } from './rutas'
 
 const cartaEjemplo = [
   // COMIDAS → van a Cocina
@@ -31,11 +31,12 @@ const cartaEjemplo = [
   { nombre: 'Brownie con helado', descripcion: 'Brownie tibio, 1 bocha de vainilla', precio: 1800, categoria: 'postre', destino: 'cocina', disponible: true, imagen_url: null },
 ]
 
-export const seedCarta = async () => {
-  console.log('Cargando carta en Firestore...')
+// Carga la carta de ejemplo en UN local concreto.
+export const seedCarta = async (localId) => {
+  console.log('Cargando carta del local', localId)
   for (const item of cartaEjemplo) {
     const id = item.nombre.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-    await setDoc(doc(db, 'carta', id), item)
+    await setDoc(refItemCarta(localId, id), item)
     console.log(`✅ ${item.nombre}`)
   }
   console.log('¡Carta cargada!')

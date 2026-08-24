@@ -1,98 +1,298 @@
 rules_version = '2';
 
 // ============================================================
-//  REGLAS DE SEGURIDAD — BarFlow
+//  REGLAS DE SEGURIDAD - BarFlow (SaaS multi-local)
 //
-//  Modelo:
-//  - El comensal entra con una sesion ANONIMA que la app crea sola.
-//    No ve ningun login, pero deja de ser "internet abierto": para
-//    tocar la base hay que ser un usuario de la app.
-//  - El personal usa cuentas reales de Firebase Authentication.
-//    Su rol vive en /usuarios/{uid}.rol y solo se edita desde la
-//    consola de Firebase. La app nunca lo escribe.
+//  Modelo de aislamiento:
+//  - Cada negocio es un documento locales/{localId} y TODOS sus
+//    datos cuelgan debajo. El localId viaja en el path, asi que
+//    cada regla sabe de que negocio se trata sin confiar en el
+//    cliente.
+//  - El rol de una persona vive en locales/{localId}/empleados/{uid}.
+//    Trabajar en el bar A no dice absolutamente nada sobre el bar B:
+//    alla no hay ficha, y sin ficha no hay permiso. El aislamiento
+//    es por construccion, no por un filtro que alguien pueda olvidar.
+//  - El comensal entra con sesion anonima. No se registra, pero sin
+//    sesion no toca nada.
+//  - El admin de la plataforma (Hexa Group) esta en
+//    superadmins/{uid}. Ese documento SOLO se crea desde la
+//    consola de Firebase: nadie puede darse ese permiso a si mismo.
 //
-//  Roles: 'encargado' | 'cocina' | 'mozo'
+//  Roles de local: 'encargado' | 'cocina' | 'mozo'
 // ============================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // -- AYUDAS GENERALES -------------------------------------
     function logueado() {
       return request.auth != null;
     }
 
-    function fichaUsuario() {
-      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    function miUid() {
+      return request.auth.uid;
     }
 
-    function tieneFicha() {
+    // El dueno del SaaS. Ve y administra todo.
+    function esAdminPlataforma() {
       return logueado()
-        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+        && exists(/databases/$(database)/documents/superadmins/$(miUid()));
     }
 
-    function esPersonal() {
-      return tieneFicha() && fichaUsuario().rol in ['encargado', 'cocina', 'mozo'];
+    // -- AYUDAS POR LOCAL -------------------------------------
+    function refFicha(localId) {
+      return /databases/$(database)/documents/locales/$(localId)/empleados/$(miUid());
     }
 
-    function esEncargado() {
-      return tieneFicha() && fichaUsuario().rol == 'encargado';
+    function tieneFicha(localId) {
+      return logueado() && exists(refFicha(localId));
     }
 
-    // ── CARTA ────────────────────────────────────────────────
-    // La lee cualquiera con sesion; solo el encargado la edita.
-    match /carta/{itemId} {
-      allow read:  if logueado();
-      allow write: if esEncargado();
+    function ficha(localId) {
+      return get(refFicha(localId)).data;
     }
 
-    // ── CONFIGURACION DEL SISTEMA ────────────────────────────
-    // La app necesita leer datos de transferencia, nombres de mozos
-    // y cantidad de mesas. Modificarla es cosa del encargado.
-    match /sistema/{docId} {
-      allow read:  if logueado();
-      allow write: if esEncargado();
+    function refDelLocal(localId) {
+      return /databases/$(database)/documents/locales/$(localId);
     }
 
-    // ── MESAS ────────────────────────────────────────────────
-    // El comensal necesita escribir en su mesa (carrito, pedidos,
-    // chat, llamadas), asi que alcanza con tener sesion. Borrar
-    // queda reservado al personal.
-    match /mesas/{mesaId} {
-      allow read:           if logueado();
-      allow create, update: if logueado();
-      allow delete:         if esEncargado();
+    // El local existe y no esta suspendido por falta de pago.
+    function localActivo(localId) {
+      return exists(refDelLocal(localId))
+        && get(refDelLocal(localId)).data.estado in ['activo', 'prueba'];
+    }
 
-      match /pedidos/{pedidoId} {
-        allow read:           if logueado();
-        allow create, update: if logueado();
-        allow delete:         if esPersonal();
+    // Trabaja en ESTE local, no esta dado de baja, y el local no esta
+    // suspendido. Suspender congela el negocio para todos: comensales y
+    // personal por igual. El unico que sigue entrando es la plataforma,
+    // que es quien tiene que poder reactivarlo.
+    function esPersonal(localId) {
+      return tieneFicha(localId)
+        && localActivo(localId)
+        && ficha(localId).activo == true
+        && ficha(localId).rol in ['encargado', 'cocina', 'mozo'];
+    }
+
+    function esEncargado(localId) {
+      return tieneFicha(localId)
+        && localActivo(localId)
+        && ficha(localId).activo == true
+        && ficha(localId).rol == 'encargado';
+    }
+
+    // El comensal: sesion anonima en un local que esta funcionando.
+    function comensalDe(localId) {
+      return logueado() && localActivo(localId);
+    }
+
+    function esTitular(localId) {
+      return logueado()
+        && get(refDelLocal(localId)).data.owner_uid == miUid();
+    }
+
+    // El email verificado que trae el token de Google. Es la clave de
+    // las invitaciones: nadie puede reclamar la de otra persona porque
+    // el email no lo elige el cliente, lo firma el proveedor.
+    function miEmail() {
+      return request.auth.token.email;
+    }
+
+    function refInvitacion(localId, email) {
+      return /databases/$(database)/documents/locales/$(localId)/invitaciones/$(email);
+    }
+
+    // ¿Me invitaron a este local con este rol exacto?
+    function tengoInvitacion(localId, rol) {
+      return logueado()
+        && miEmail() != null
+        && exists(refInvitacion(localId, miEmail()))
+        && get(refInvitacion(localId, miEmail())).data.rol == rol;
+    }
+
+    // -- EL LOCAL ---------------------------------------------
+    match /locales/{localId} {
+
+      // Leer UN local por su id lo puede hacer cualquiera con sesion:
+      // la pantalla de la mesa necesita el nombre y el logo antes de
+      // que el comensal haga nada, y para eso ya tiene el id en el QR.
+      allow get: if logueado();
+
+      // Listar la coleccion, en cambio, es solo de la plataforma. Si
+      // no se separa de 'get', un allow read deja que cualquiera
+      // —hasta un comensal anonimo— se baje el padron completo de
+      // negocios con sus dueños, planes y estados.
+      allow list: if esAdminPlataforma();
+
+      // Alta de un negocio nuevo: la hace la propia persona al
+      // registrarse. Se exige que se declare duena de lo que crea y
+      // que no pueda nacer con un estado que no le toca.
+      allow create: if logueado()
+        && request.resource.data.owner_uid == miUid()
+        && request.resource.data.estado == 'prueba'
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0;
+
+      // El encargado edita los datos de su local, pero NO puede
+      // tocar quien es el titular, el plan ni el estado de la cuenta:
+      // eso es de la plataforma.
+      allow update: if esAdminPlataforma()
+        || (esEncargado(localId)
+            && request.resource.data.owner_uid == resource.data.owner_uid
+            && request.resource.data.plan       == resource.data.plan
+            && request.resource.data.estado     == resource.data.estado);
+
+      // Dar de baja un negocio es cosa de la plataforma.
+      allow delete: if esAdminPlataforma();
+
+      // -- CARTA ----------------------------------------------
+      match /carta/{itemId} {
+        allow read:  if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow write: if esEncargado(localId) || esAdminPlataforma();
       }
 
-      match /mensajes/{mensajeId} {
-        allow read:           if logueado();
-        allow create:         if logueado();
-        allow update, delete: if esPersonal();
+      // -- CONFIGURACION DEL LOCAL ----------------------------
+      // Datos de transferencia, mozos, cantidad de mesas.
+      match /sistema/{docId} {
+        allow read:  if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow write: if esEncargado(localId) || esAdminPlataforma();
       }
 
-      match /llamadas/{llamadaId} {
-        allow read:           if logueado();
-        allow create:         if logueado();
-        allow update, delete: if esPersonal();
+      // -- MESAS ----------------------------------------------
+      // El comensal escribe en su mesa (carrito, pedidos, chat,
+      // llamadas) sin registrarse. Borrar queda para el personal.
+      match /mesas/{mesaId} {
+        allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow create, update: if comensalDe(localId) || esPersonal(localId);
+        allow delete:         if esEncargado(localId) || esAdminPlataforma();
+
+        match /pedidos/{pedidoId} {
+          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create, update: if comensalDe(localId) || esPersonal(localId);
+          allow delete:         if esPersonal(localId) || esAdminPlataforma();
+        }
+
+        match /mensajes/{mensajeId} {
+          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if comensalDe(localId) || esPersonal(localId);
+          allow update, delete: if esPersonal(localId) || esAdminPlataforma();
+        }
+
+        match /llamadas/{llamadaId} {
+          allow read:           if comensalDe(localId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if comensalDe(localId) || esPersonal(localId);
+          allow update, delete: if esPersonal(localId) || esAdminPlataforma();
+        }
+      }
+
+      // -- HISTORIAL Y CAJA -----------------------------------
+      // Facturacion cerrada: ningun comensal la ve ni la toca.
+      match /historial/{docId} {
+        allow read, create:   if esPersonal(localId) || esAdminPlataforma();
+        allow update, delete: if esEncargado(localId) || esAdminPlataforma();
+      }
+
+      // -- EMPLEADOS ------------------------------------------
+      // Aca vive el rol de cada persona del local. Es lo que mira
+      // todo el resto de las reglas, asi que es el punto sensible.
+      match /empleados/{uid} {
+
+        // Cada uno lee su ficha para saber que vista le toca; el
+        // encargado lee y lista a todo su equipo.
+        allow read: if (logueado() && uid == miUid())
+          || esEncargado(localId)
+          || esAdminPlataforma();
+
+        // Tres formas legitimas de que nazca una ficha:
+        //  1. el titular se anota a si mismo al registrar el local;
+        //  2. alguien canjea la invitacion que le dejaron, y solo con
+        //     el rol que dice esa invitacion —no el que el pida—;
+        //  3. la plataforma, dando soporte.
+        // El encargado NO crea fichas a mano: con Google no puede
+        // crearle la cuenta a otro, asi que invita y la persona entra.
+        allow create: if esAdminPlataforma()
+          || (uid == miUid()
+              && esTitular(localId)
+              && request.resource.data.rol == 'encargado')
+          || (uid == miUid()
+              && tengoInvitacion(localId, request.resource.data.rol)
+              && request.resource.data.activo == true);
+
+        // El encargado administra a su equipo. No puede cambiarse el
+        // rol a si mismo ni auto-desactivarse: evita que el local se
+        // quede sin nadie que pueda administrarlo.
+        allow update: if esAdminPlataforma()
+          || (esEncargado(localId)
+              && request.resource.data.rol in ['encargado', 'cocina', 'mozo']
+              && (uid != miUid()
+                  || (request.resource.data.rol == resource.data.rol
+                      && request.resource.data.activo == true)));
+
+        allow delete: if esAdminPlataforma()
+          || (esEncargado(localId) && uid != miUid());
+      }
+
+      // -- INVITACIONES DEL LOCAL -----------------------------
+      // El id del documento es el email invitado, en minusculas.
+      match /invitaciones/{email} {
+        // El encargado ve y administra las pendientes de su local.
+        // La persona invitada lee la suya para saber que rol le toca.
+        allow read: if esEncargado(localId)
+          || esAdminPlataforma()
+          || (logueado() && email == miEmail());
+
+        allow create, update: if esEncargado(localId)
+          && request.resource.data.rol in ['encargado', 'cocina', 'mozo'];
+
+        // La borra el encargado (se arrepintio) o la propia persona
+        // al canjearla.
+        allow delete: if esEncargado(localId)
+          || esAdminPlataforma()
+          || (logueado() && email == miEmail());
       }
     }
 
-    // ── HISTORIAL Y CAJA ─────────────────────────────────────
-    // Facturacion cerrada: ningun comensal la ve ni la toca.
-    match /historial/{docId} {
-      allow read, create:   if esPersonal();
-      allow update, delete: if esEncargado();
+    // -- INDICE GLOBAL DE INVITACIONES ------------------------
+    // Un puntero minimo email -> local, para que quien entra por
+    // primera vez sepa a que negocio lo invitaron. Cada uno solo
+    // puede leer y borrar la suya: el email lo firma Google, no lo
+    // elige el cliente, asi que nadie puede reclamar la de otro.
+    match /invitaciones/{email} {
+      allow get: if logueado() && email == miEmail();
+      allow list: if esAdminPlataforma();
+
+      // Solo un encargado puede dejar una invitacion, y solo apuntando
+      // a su propio local.
+      allow create, update: if esEncargado(request.resource.data.local_id);
+
+      allow delete: if (logueado() && email == miEmail())
+        || esEncargado(resource.data.local_id)
+        || esAdminPlataforma();
     }
 
-    // ── ROLES ────────────────────────────────────────────────
-    // Cada usuario puede leer su propia ficha para saber que vista
-    // le corresponde. Escribirlas, solo desde la consola.
-    match /usuarios/{userId} {
-      allow read:  if logueado() && request.auth.uid == userId;
+    // -- INDICE GLOBAL uid -> local ---------------------------
+    // Un documento minimo que dice a que local pertenece cada
+    // cuenta, para saber a donde mandarla despues del login. El rol
+    // que vale para los permisos es el de empleados/{uid}: este es
+    // solo un atajo de navegacion.
+    match /usuarios/{uid} {
+      allow read: if (logueado() && uid == miUid()) || esAdminPlataforma();
+
+      // Se escribe al registrarse (uno mismo) o cuando el encargado
+      // da de alta a alguien de su local.
+      allow create, update: if esAdminPlataforma()
+        || (uid == miUid() && request.resource.data.local_id is string)
+        || esEncargado(request.resource.data.local_id);
+
+      allow delete: if esAdminPlataforma()
+        || esEncargado(resource.data.local_id);
+    }
+
+    // -- ADMINS DE LA PLATAFORMA ------------------------------
+    // Solo se crean desde la consola de Firebase. La app jamas
+    // escribe aca: si esto fuera escribible, cualquiera podria
+    // darse acceso a todos los negocios.
+    match /superadmins/{uid} {
+      allow read:  if logueado() && uid == miUid();
       allow write: if false;
     }
 

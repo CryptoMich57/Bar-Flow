@@ -2,12 +2,19 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { suscribirPedidos, suscribirMensajes, enviarMensaje, liberarMesa } from '../firebase/mesa'
 import {
-  collection, onSnapshot, doc, updateDoc, query, orderBy,
-  getDocs, writeBatch, serverTimestamp, addDoc, where,
-  Timestamp, deleteDoc, getDoc
+  onSnapshot, updateDoc, query, orderBy,
+  getDocs, writeBatch, serverTimestamp, addDoc,
+  deleteDoc, getDoc
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import { getCopyright, getNombreBar, getLogo, APP_CONFIG } from '../config'
+import {
+  refMesa, colPedidos, refPedido, colLlamadas, refLlamada,
+  colCarta, refItemCarta, colHistorial, refHistorial,
+} from '../firebase/rutas'
+import { useLocal } from '../utils/LocalContext'
+import EquipoDelLocal from '../components/EquipoDelLocal'
+import { useAccesoActual } from '../utils/AccesoContext'
+import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '../firebase/configuracion'
 import styles from './EncargadoPage.module.css'
 import '../utils/animaciones.css'
@@ -26,6 +33,9 @@ const ESTADO_LABEL = {
 }
 
 export default function EncargadoPage() {
+  const { localId, local, nombre: nombreBar, logo } = useLocal()
+  // soporte = Hexa Group mirando el local de un cliente. Ve todo, no opera.
+  const { soporte } = useAccesoActual()
   const [mesas, setMesas]                   = useState({})
   const [mesaSeleccionada, setMesaSeleccionada] = useState(null)
   const [pedidos, setPedidos]               = useState([])
@@ -38,14 +48,13 @@ export default function EncargadoPage() {
   const [historial, setHistorial]           = useState([])
   const [filtroDesde, setFiltroDesde]       = useState('')
   const [configDB, setConfigDB]             = useState(null)
-  const [cantidadMesas, setCantidadMesas]   = useState(APP_CONFIG.mesas.cantidad)
+  const [cantidadMesas, setCantidadMesas]   = useState(MESAS_POR_DEFECTO)
   const [configGuardando, setConfigGuardando] = useState(false)
   const [configGuardado, setConfigGuardado] = useState(false)
   const [filtroHasta, setFiltroHasta]       = useState('')
   const [estadisticas, setEstadisticas]     = useState(null)
   const [editandoItem, setEditandoItem]     = useState(null)
   const [nuevoItem, setNuevoItem]           = useState(null)
-  const [config, setConfig]                 = useState(APP_CONFIG)
   const navigate = useNavigate()
   const [audioOn, setAudioOn] = useState(false)
   const { agregar: notif, NotifBanner } = useNotificaciones()
@@ -56,19 +65,19 @@ export default function EncargadoPage() {
 
   // ── Cargar configuración desde Firestore ────────────────────────────────────
   useEffect(() => {
-    const unsub = suscribirConfiguracion((cfg) => {
+    const unsub = suscribirConfiguracion(localId, (cfg) => {
       if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
       setConfigDB(cfg || DEFAULTS_CONFIG)
     })
     return unsub
-  }, [])
+  }, [localId])
 
   // ── Suscripciones ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (cantidadMesas === 0) return
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num =>
-      onSnapshot(doc(db, 'mesas', `mesa_${num}`), snap => {
+      onSnapshot(refMesa(localId, num), snap => {
         if (snap.exists()) setMesas(prev => ({ ...prev, [num]: { id: snap.id, ...snap.data() } }))
         else {
           // Mesa no existe en Firestore aún — mostrar como libre
@@ -77,14 +86,14 @@ export default function EncargadoPage() {
       })
     )
     return () => unsubs.forEach(u => u())
-  }, [cantidadMesas])
+  }, [localId, cantidadMesas])
 
   useEffect(() => {
     if (!mesaSeleccionada) return
-    const u1 = suscribirPedidos(mesaSeleccionada, (nuevos) => {
+    const u1 = suscribirPedidos(localId, mesaSeleccionada, (nuevos) => {
       setPedidos(nuevos)
     })
-    const u2 = suscribirMensajes(mesaSeleccionada, (nuevos) => {
+    const u2 = suscribirMensajes(localId, mesaSeleccionada, (nuevos) => {
       const nuevosMsg = nuevos.filter(m => !mensajesAnteriores.current[m.id])
       if (nuevosMsg.length > 0 && Object.keys(mensajesAnteriores.current).length > 0) {
         sonidoMensaje()
@@ -95,18 +104,18 @@ export default function EncargadoPage() {
       setMensajes(nuevos)
     })
     const u3 = onSnapshot(
-      query(collection(db, 'mesas', `mesa_${mesaSeleccionada}`, 'llamadas'), orderBy('created_at', 'desc')),
+      query(colLlamadas(localId, mesaSeleccionada), orderBy('created_at', 'desc')),
       snap => setLlamadas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     return () => { u1(); u2(); u3() }
-  }, [mesaSeleccionada])
+  }, [localId, mesaSeleccionada])
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'carta'), snap => {
+    const unsub = onSnapshot(colCarta(localId), snap => {
       setCarta(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     })
     return unsub
-  }, [])
+  }, [localId])
 
   useEffect(() => {
     if (tab !== 'historial') return
@@ -124,7 +133,7 @@ export default function EncargadoPage() {
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num => {
       const q = query(
-        collection(db, 'mesas', `mesa_${num}`, 'pedidos'),
+        colPedidos(localId, num),
         orderBy('created_at', 'asc')
       )
       return onSnapshot(q, snap => {
@@ -165,7 +174,7 @@ export default function EncargadoPage() {
 
   // ── Historial ───────────────────────────────────────────────────────────────
   const cargarHistorial = async (desde = null, hasta = null) => {
-    let q = query(collection(db, 'historial'), orderBy('fecha_hora_cierre', 'desc'))
+    let q = query(colHistorial(localId), orderBy('fecha_hora_cierre', 'desc'))
     const snap = await getDocs(q)
     let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
     if (desde) docs = docs.filter(d => d.fecha_hora_cierre?.toDate?.() >= new Date(desde))
@@ -179,7 +188,7 @@ export default function EncargadoPage() {
   const borrarHistorialFiltrado = async () => {
     if (!window.confirm('¿Borrar el historial filtrado?')) return
     const batch = writeBatch(db)
-    historial.forEach(h => batch.delete(doc(db, 'historial', h.id)))
+    historial.forEach(h => batch.delete(refHistorial(localId, h.id)))
     await batch.commit()
     setHistorial([])
   }
@@ -187,7 +196,7 @@ export default function EncargadoPage() {
   // ── Estadísticas del día ─────────────────────────────────────────────────────
   const calcularEstadisticas = async () => {
     const hoy = new Date(); hoy.setHours(0,0,0,0)
-    const snap = await getDocs(collection(db, 'historial'))
+    const snap = await getDocs(colHistorial(localId))
     const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .filter(d => d.fecha_hora_cierre?.toDate?.() >= hoy)
 
@@ -204,7 +213,7 @@ export default function EncargadoPage() {
 
   // ── Pedidos ──────────────────────────────────────────────────────────────────
   const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const pedidoRef = refPedido(localId, mesaId, pedidoId)
     const pedido = pedidos.find(p => p.id === pedidoId)
     if (!pedido) return
     const items = pedido.items.map((item, i) => i === itemIdx ? { ...item, estado: nuevoEstado } : item)
@@ -215,7 +224,7 @@ export default function EncargadoPage() {
   // Cambia el estado de un item de barra. El indice que llega es el de la lista
   // ya filtrada por destino, asi que hay que mapearlo al indice real del pedido.
   const cambiarEstadoItemBarra = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const pedidoRef = refPedido(localId, mesaId, pedidoId)
     const snap = await getDoc(pedidoRef)
     if (!snap.exists()) return
     const data = snap.data()
@@ -230,18 +239,18 @@ export default function EncargadoPage() {
   }
 
   const marcarPedidoEntregado = async (mesaId, pedidoId) => {
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId), { estado: 'entregado' })
+    await updateDoc(refPedido(localId, mesaId, pedidoId), { estado: 'entregado' })
   }
 
   const cancelarItem = async (mesaId, pedidoId, itemIdx) => {
-    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const pedidoRef = refPedido(localId, mesaId, pedidoId)
     const pedido = pedidos.find(p => p.id === pedidoId)
     if (!pedido) return
     const items = pedido.items.filter((_, i) => i !== itemIdx)
     const nuevoTotal = items.reduce((a, i) => a + i.precio * i.cantidad, 0)
     await updateDoc(pedidoRef, { items, total: nuevoTotal })
     const diff = pedido.items[itemIdx].precio * pedido.items[itemIdx].cantidad
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`), {
+    await updateDoc(refMesa(localId, mesaId), {
       total_acumulado: Math.max(0, (mesas[mesaId]?.total_acumulado || 0) - diff)
     })
   }
@@ -252,7 +261,7 @@ export default function EncargadoPage() {
     if (!mesa) return
     if (!window.confirm(`¿Confirmar pago y liberar Mesa ${mesaId}?`)) return
     try {
-      await addDoc(collection(db, 'historial'), {
+      await addDoc(colHistorial(localId), {
         mesa_id: mesaId,
         fecha_hora_apertura: mesa.hora_apertura,
         fecha_hora_cierre: serverTimestamp(),
@@ -264,7 +273,7 @@ export default function EncargadoPage() {
         metodo_pago: mesa.metodo_pago || '',
         abona_con: mesa.abona_con || null,
       })
-      await liberarMesa(mesaId)
+      await liberarMesa(localId, mesaId)
       setMesaSeleccionada(null); setPedidos([]); setMensajes([]); setLlamadas([])
     } catch (e) {
       alert('Error al liberar mesa: ' + e.message)
@@ -276,7 +285,7 @@ export default function EncargadoPage() {
   const resetearMesaSinPago = async (mesaId) => {
     if (!window.confirm(`¿Resetear Mesa ${mesaId} sin registro? Se perderán todos los datos.`)) return
     try {
-      await liberarMesa(mesaId)
+      await liberarMesa(localId, mesaId)
       setMesaSeleccionada(null); setPedidos([]); setMensajes([]); setLlamadas([])
     } catch (e) {
       alert('Error: ' + e.message)
@@ -285,36 +294,36 @@ export default function EncargadoPage() {
 
   // ── Llamadas al mozo ─────────────────────────────────────────────────────────
   const resolverLlamada = async (mesaId, llamadaId) => {
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`, 'llamadas', llamadaId), { estado: 'resuelto' })
+    await updateDoc(refLlamada(localId, mesaId, llamadaId), { estado: 'resuelto' })
   }
 
   // ── Carta ────────────────────────────────────────────────────────────────────
   const toggleDisponible = async (itemId, actual) => {
-    await updateDoc(doc(db, 'carta', itemId), { disponible: !actual })
+    await updateDoc(refItemCarta(localId, itemId), { disponible: !actual })
   }
 
   const guardarEdicionItem = async () => {
     if (!editandoItem) return
     const { id, ...data } = editandoItem
-    await updateDoc(doc(db, 'carta', id), data)
+    await updateDoc(refItemCarta(localId, id), data)
     setEditandoItem(null)
   }
 
   const guardarNuevoItem = async () => {
     if (!nuevoItem?.nombre || !nuevoItem?.precio) return
-    await addDoc(collection(db, 'carta'), { ...nuevoItem, disponible: true, imagen_url: '' })
+    await addDoc(colCarta(localId), { ...nuevoItem, disponible: true, imagen_url: '' })
     setNuevoItem(null)
   }
 
   const eliminarItem = async (itemId) => {
     if (!window.confirm('¿Eliminar este producto?')) return
-    await deleteDoc(doc(db, 'carta', itemId))
+    await deleteDoc(refItemCarta(localId, itemId))
   }
 
   // ── Chat ─────────────────────────────────────────────────────────────────────
   const handleEnviarMensaje = async () => {
     if (!textoMsg.trim() || !mesaSeleccionada) return
-    await enviarMensaje(mesaSeleccionada, textoMsg.trim(), 'Encargado')
+    await enviarMensaje(localId, mesaSeleccionada, textoMsg.trim(), 'Encargado')
     setTextoMsg('')
   }
 
@@ -347,7 +356,7 @@ export default function EncargadoPage() {
     if (cantNueva > cantActual) {
       const batch = writeBatch(db)
       for (let i = cantActual + 1; i <= cantNueva; i++) {
-        const ref = doc(db, 'mesas', `mesa_${i}`)
+        const ref = refMesa(localId, i)
         const snap = await getDoc(ref)
         if (!snap.exists()) {
           batch.set(ref, {
@@ -362,7 +371,7 @@ export default function EncargadoPage() {
     }
     setConfigGuardando(true)
     try {
-      await guardarConfiguracion(configDB)
+      await guardarConfiguracion(localId, configDB)
       setConfigGuardado(true)
       setTimeout(() => setConfigGuardado(false), 2500)
     } catch (e) { alert('Error al guardar: ' + e.message) }
@@ -389,9 +398,9 @@ export default function EncargadoPage() {
       {/* ── SIDEBAR ──────────────────────────────────────────────────────────── */}
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
-          <img src={getLogo()} alt="Logo" className={styles.sidebarLogo} onError={e => e.target.style.display='none'} />
+          <img src={logo} alt="Logo" className={styles.sidebarLogo} onError={e => e.target.style.display='none'} />
           <div>
-            <div className={styles.sidebarNombreBar}>{getNombreBar()}</div>
+            <div className={styles.sidebarNombreBar}>{nombreBar}</div>
             <div className={styles.sidebarRol}>Encargado</div>
           </div>
           {mesasConAlerta > 0 && <span className={styles.alertBadge}>{mesasConAlerta}</span>}
@@ -417,8 +426,8 @@ export default function EncargadoPage() {
           >
             {audioOn ? '🔔 Sonido activado' : '🔕 Activar sonido'}
           </button>
-          <button className={styles.navBtn} onClick={() => navigate('/cocina')}>👨‍🍳 Cocina</button>
-          <button className={styles.navBtn} onClick={() => navigate('/mozo')}>🧍 Mozo</button>
+          <button className={styles.navBtn} onClick={() => navigate(`/l/${localId}/cocina`)}>👨‍🍳 Cocina</button>
+          <button className={styles.navBtn} onClick={() => navigate(`/l/${localId}/mozo`)}>🧍 Mozo</button>
           <button className={styles.navBtn} onClick={() => cerrarSesion()}>🚪 Cerrar sesion</button>
           <div className={styles.footerCopy}>{getCopyright()}</div>
         </div>
@@ -426,6 +435,20 @@ export default function EncargadoPage() {
 
       {/* ── MAIN ─────────────────────────────────────────────────────────────── */}
       <main className={styles.main}>
+        {soporte && (
+          <div className="card" style={{
+            margin:'0 0 16px', borderLeft:'3px solid var(--gold)',
+            display:'flex', gap:10, alignItems:'center', flexWrap:'wrap',
+          }}>
+            <span style={{fontSize:'1.2em'}}>🛠️</span>
+            <span style={{fontSize:'0.85em', color:'var(--text2)'}}>
+              <strong style={{color:'var(--gold)'}}>Modo soporte.</strong>{' '}
+              Estas viendo {nombreBar} como administrador de la plataforma. Podes
+              consultar todo, pero las acciones que operan el local quedan del lado
+              de su equipo.
+            </span>
+          </div>
+        )}
 
         <NotifBanner />
       {/* ════════════════ TAB MESAS ════════════════ */}
@@ -466,12 +489,12 @@ export default function EncargadoPage() {
                     </span>
                   </div>
                   <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                    {(mesaData.estado === 'esperando_cuenta' || mesaData.estado === 'cuenta_cobrada') && (
+                    {!soporte && (mesaData.estado === 'esperando_cuenta' || mesaData.estado === 'cuenta_cobrada') && (
                       <button className={styles.pagarBtn} onClick={() => confirmarPagoYLiberar(mesaSeleccionada)}>
                         ✅ Confirmar pago y liberar
                       </button>
                     )}
-                    {mesaData.estado !== 'libre' && (
+                    {!soporte && mesaData.estado !== 'libre' && (
                       <button className={styles.resetBtn} onClick={() => resetearMesaSinPago(mesaSeleccionada)}>
                         🚪 Cerrar mesa
                       </button>
@@ -486,7 +509,7 @@ export default function EncargadoPage() {
                     {llamadas.filter(l => l.estado === 'pendiente').map(l => (
                       <div key={l.id} className={styles.llamadaRow}>
                         <span>{l.cliente}: <strong>{l.nota}</strong></span>
-                        <button className={styles.resolverBtn} onClick={() => resolverLlamada(mesaSeleccionada, l.id)}>✓ Resolver</button>
+                        {!soporte && <button className={styles.resolverBtn} onClick={() => resolverLlamada(mesaSeleccionada, l.id)}>✓ Resolver</button>}
                       </div>
                     ))}
                   </div>
@@ -504,7 +527,7 @@ export default function EncargadoPage() {
                           <span className={`badge badge-${p.estado==='entregado'?'green':p.estado==='listo'?'yellow':'gold'}`}>
                             {p.estado==='pendiente'?'⏳ Pendiente':p.estado==='en_preparacion'?'👨‍🍳 Preparando':p.estado==='listo'?'✅ Listo':'🎉 Entregado'}
                           </span>
-                          {p.estado==='listo' && (
+                          {!soporte && p.estado==='listo' && (
                             <button className={styles.actionBtn} onClick={() => marcarPedidoEntregado(mesaSeleccionada, p.id)}>Entregado</button>
                           )}
                         </div>
@@ -518,15 +541,19 @@ export default function EncargadoPage() {
                           </div>
                           <div style={{display:'flex',gap:6,alignItems:'center'}}>
                             <span style={{color:'var(--gold)'}}>${(item.precio*item.cantidad).toLocaleString()}</span>
-                            <div className={styles.itemEstados}>
-                              {['pendiente','en_preparacion','listo'].map(e => (
-                                <button key={e} className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
-                                  onClick={() => cambiarEstadoItem(mesaSeleccionada, p.id, ii, e)}>
-                                  {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
-                                </button>
-                              ))}
-                              <button className={styles.cancelBtn} onClick={() => cancelarItem(mesaSeleccionada, p.id, ii)}>✕</button>
-                            </div>
+                            {soporte ? (
+                              <span style={{color:'var(--text3)',fontSize:'0.75em'}}>{item.estado}</span>
+                            ) : (
+                              <div className={styles.itemEstados}>
+                                {['pendiente','en_preparacion','listo'].map(e => (
+                                  <button key={e} className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
+                                    onClick={() => cambiarEstadoItem(mesaSeleccionada, p.id, ii, e)}>
+                                    {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
+                                  </button>
+                                ))}
+                                <button className={styles.cancelBtn} onClick={() => cancelarItem(mesaSeleccionada, p.id, ii)}>✕</button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -566,12 +593,14 @@ export default function EncargadoPage() {
                   ))}
                   {mensajes.length===0 && <p style={{color:'var(--text3)',fontSize:'0.8em',padding:8}}>Sin mensajes</p>}
                 </div>
-                <div className={styles.chatInput}>
-                  <input className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
-                    placeholder="Mensaje al cliente..." value={textoMsg}
-                    onChange={e => setTextoMsg(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEnviarMensaje()} />
-                  <button className={styles.sendBtn} onClick={handleEnviarMensaje}>→</button>
-                </div>
+                {!soporte && (
+                  <div className={styles.chatInput}>
+                    <input className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
+                      placeholder="Mensaje al cliente..." value={textoMsg}
+                      onChange={e => setTextoMsg(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEnviarMensaje()} />
+                    <button className={styles.sendBtn} onClick={handleEnviarMensaje}>→</button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className={styles.detalleVacio}><p>Seleccioná una mesa para ver el detalle</p></div>
@@ -604,15 +633,19 @@ export default function EncargadoPage() {
                         <span>{item.cantidad}× {item.nombre}</span>
                         {item.nota && <span style={{color:'var(--yellow)', fontSize:'0.75em'}}>📝 {item.nota}</span>}
                       </div>
-                      <div className={styles.itemEstados}>
-                        {['pendiente','en_preparacion','listo'].map(e => (
-                          <button key={e}
-                            className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
-                            onClick={() => cambiarEstadoItemBarra(p.mesaId, p.id, ii, e)}>
-                            {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
-                          </button>
-                        ))}
-                      </div>
+                      {soporte ? (
+                        <span style={{color:'var(--text3)', fontSize:'0.75em'}}>{item.estado}</span>
+                      ) : (
+                        <div className={styles.itemEstados}>
+                          {['pendiente','en_preparacion','listo'].map(e => (
+                            <button key={e}
+                              className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
+                              onClick={() => cambiarEstadoItemBarra(p.mesaId, p.id, ii, e)}>
+                              {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -626,9 +659,11 @@ export default function EncargadoPage() {
           <div className={styles.cartaContainer}>
             <div className={styles.cartaTopBar}>
               <h2 className={styles.sectionTitle} style={{marginBottom:0}}>Administrar carta</h2>
-              <button className={styles.agregarBtn} onClick={() => setNuevoItem({ nombre:'', descripcion:'', precio:0, categoria:'comida', destino:'cocina', disponible:true })}>
-                + Agregar producto
-              </button>
+              {!soporte && (
+                <button className={styles.agregarBtn} onClick={() => setNuevoItem({ nombre:'', descripcion:'', precio:0, categoria:'comida', destino:'cocina', disponible:true })}>
+                  + Agregar producto
+                </button>
+              )}
             </div>
 
             {/* Formulario nuevo producto */}
@@ -710,12 +745,18 @@ export default function EncargadoPage() {
                             <span className={styles.cartaPrecio}>${item.precio.toLocaleString()}</span>
                           </div>
                           <div className={styles.cartaAcciones}>
-                            <button className={`${styles.toggleBtn} ${item.disponible?styles.toggleOn:styles.toggleOff}`}
-                              onClick={() => toggleDisponible(item.id, item.disponible)}>
-                              {item.disponible?'✅':'❌'}
-                            </button>
-                            <button className={styles.editBtn} onClick={() => setEditandoItem({...item})}>✏️</button>
-                            <button className={styles.deleteBtn} onClick={() => eliminarItem(item.id)}>🗑️</button>
+                            {soporte ? (
+                              <span style={{color:'var(--text3)', fontSize:'0.8em'}}>{item.disponible?'✅ disponible':'❌ sin stock'}</span>
+                            ) : (
+                              <>
+                                <button className={`${styles.toggleBtn} ${item.disponible?styles.toggleOn:styles.toggleOff}`}
+                                  onClick={() => toggleDisponible(item.id, item.disponible)}>
+                                  {item.disponible?'✅':'❌'}
+                                </button>
+                                <button className={styles.editBtn} onClick={() => setEditandoItem({...item})}>✏️</button>
+                                <button className={styles.deleteBtn} onClick={() => eliminarItem(item.id)}>🗑️</button>
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
@@ -777,13 +818,15 @@ export default function EncargadoPage() {
           <div className={styles.ajustesContainer}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
               <h2 className={styles.sectionTitle} style={{marginBottom:0}}>⚙️ Ajustes</h2>
-              <button
-                className={styles.guardarBtn}
-                onClick={guardarAjustes}
-                disabled={configGuardando}
-              >
-                {configGuardado ? '✅ Guardado' : configGuardando ? 'Guardando...' : '💾 Guardar cambios'}
-              </button>
+              {!soporte && (
+                <button
+                  className={styles.guardarBtn}
+                  onClick={guardarAjustes}
+                  disabled={configGuardando}
+                >
+                  {configGuardado ? '✅ Guardado' : configGuardando ? 'Guardando...' : '💾 Guardar cambios'}
+                </button>
+              )}
             </div>
 
             {configDB ? (
@@ -852,25 +895,28 @@ export default function EncargadoPage() {
                   <p className={styles.ajustesAviso}>⚠️ Este cambio se aplica al recargar la página.</p>
                 </div>
 
-                {/* ── ACCESO DEL PERSONAL ── */}
+                {/* ── EQUIPO DEL LOCAL ── */}
                 <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>🔒 Acceso del personal</h3>
-                  <p className={styles.ajustesDesc}>
-                    Cada vista interna (encargado, cocina, mozo) entra con una cuenta propia
-                    de Firebase Authentication. Las cuentas y sus roles se administran desde
-                    la consola de Firebase, no desde aca: asi una contrasena filtrada no
-                    queda guardada en la base de datos ni a la vista de nadie.
-                  </p>
+                  <h3 className={styles.ajustesTitulo}>👥 {soporte ? 'Equipo del local' : 'Tu equipo'}</h3>
+                  {soporte ? (
+                    <p className={styles.ajustesDesc}>
+                      El equipo lo administra el encargado del local. Desde soporte no se
+                      dan de alta ni de baja cuentas.
+                    </p>
+                  ) : (
+                    <EquipoDelLocal localId={localId} />
+                  )}
                 </div>
 
                 {/* ── INFO SOLO LECTURA ── */}
-                <div className={styles.ajustesSeccion} style={{opacity:0.5}}>
-                  <h3 className={styles.ajustesTitulo}>🔐 Configuración del sistema</h3>
-                  <p className={styles.ajustesDesc}>Estos datos solo los puede modificar el administrador del sistema.</p>
+                <div className={styles.ajustesSeccion} style={{opacity:0.6}}>
+                  <h3 className={styles.ajustesTitulo}>🔐 Tu cuenta</h3>
+                  <p className={styles.ajustesDesc}>El plan y el estado los administra Hexa Group.</p>
                   <div className={styles.ajustesReadOnly}>
-                    <span>Nombre del bar: <strong>{getNombreBar()}</strong></span>
-                    <span>Versión: <strong>1.0.0</strong></span>
-                    <span>Sistema: <strong>Hexa Group S.a.s</strong></span>
+                    <span>Local: <strong>{nombreBar}</strong></span>
+                    <span>Identificador: <strong>{localId}</strong></span>
+                    <span>Estado: <strong>{local?.estado || '—'}</strong></span>
+                    <span>Link de las mesas: <strong>/l/{localId}/mesa/1</strong></span>
                   </div>
                 </div>
               </>
@@ -901,7 +947,7 @@ export default function EncargadoPage() {
               <button className={styles.agregarBtn} onClick={() => cargarHistorial(filtroDesde||null, filtroHasta||null)}>
                 Filtrar
               </button>
-              {historial.length > 0 && (
+              {!soporte && historial.length > 0 && (
                 <button className={styles.borrarBtn} onClick={borrarHistorialFiltrado}>🗑️ Borrar filtrado</button>
               )}
             </div>

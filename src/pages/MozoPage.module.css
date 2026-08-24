@@ -83,6 +83,13 @@
 .cardHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .mesaTag { background: var(--gold); color: #000; font-size: 0.78em; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
 .metodoPago { font-size: 0.85em; font-weight: 600; }
+/* Cuanta gente hay sentada. El mozo lo necesita antes de salir de la barra:
+   con 4 personas no se llevan 4 vasos por adivinanza. */
+.personasTag {
+  background: rgba(200,169,110,0.15); color: var(--gold);
+  font-size: 0.75em; font-weight: 700;
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+}
 .cuentaInfo { display: flex; flex-direction: column; gap: 4px; font-size: 0.88em; color: var(--text2); margin-bottom: 10px; }
 
 .entregarBtn {

@@ -1,7 +1,9 @@
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
-import { db } from './config'
+import { getDoc, setDoc, onSnapshot } from 'firebase/firestore'
+import { refConfiguracion } from './rutas'
 
-const CONFIG_REF = doc(db, 'sistema', 'configuracion')
+// Configuracion editable de CADA local. Vive en
+// locales/{localId}/sistema/configuracion, asi que dos negocios nunca
+// comparten datos de transferencia, mozos ni cantidad de mesas.
 
 export const DEFAULTS_CONFIG = {
   transferencia: {
@@ -16,22 +18,23 @@ export const DEFAULTS_CONFIG = {
     { id: 3, nombre: 'Mozo 3', mesas_asignadas: [] },
   ],
   mesas: { cantidad: 10 },
-  // Las contrasenas ya no viven aca: el acceso del personal usa cuentas
-  // de Firebase Authentication y los roles se leen de /usuarios/{uid}.
+  // Las contrasenas no viven aca: el acceso del personal usa cuentas
+  // de Firebase Authentication y los roles se leen de
+  // locales/{localId}/empleados/{uid}.
 }
 
-export const suscribirConfiguracion = (callback) => {
-  return onSnapshot(CONFIG_REF, (snap) => {
+export const suscribirConfiguracion = (localId, callback) => {
+  return onSnapshot(refConfiguracion(localId), (snap) => {
     // Si no existe el documento, devolver defaults directamente
     callback(snap.exists() ? { ...DEFAULTS_CONFIG, ...snap.data() } : { ...DEFAULTS_CONFIG })
   })
 }
 
-export const guardarConfiguracion = async (datos) => {
-  await setDoc(CONFIG_REF, datos, { merge: true })
+export const guardarConfiguracion = async (localId, datos) => {
+  await setDoc(refConfiguracion(localId), datos, { merge: true })
 }
 
-export const cargarConfiguracion = async () => {
-  const snap = await getDoc(CONFIG_REF)
+export const cargarConfiguracion = async (localId) => {
+  const snap = await getDoc(refConfiguracion(localId))
   return snap.exists() ? { ...DEFAULTS_CONFIG, ...snap.data() } : { ...DEFAULTS_CONFIG }
 }

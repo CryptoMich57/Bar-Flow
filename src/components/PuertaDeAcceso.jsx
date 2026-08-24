@@ -1,35 +1,34 @@
 import { useState } from 'react'
-import { useSesion } from '../utils/useSesion'
-import { iniciarSesionPersonal, cerrarSesion, mensajeDeError } from '../firebase/auth'
-import { getNombreBar, getLogo, getCopyright } from '../config'
+import { Link } from 'react-router-dom'
+import { useAcceso } from '../utils/useSesion'
+import { useLocal } from '../utils/LocalContext'
+import { AccesoProvider } from '../utils/AccesoContext'
+import { entrarConGoogle, cerrarSesion, mensajeDeError } from '../firebase/auth'
+import { getCopyright } from '../config'
+import BotonGoogle from './BotonGoogle'
 import styles from './PuertaDeAcceso.module.css'
 
-// Envuelve las vistas internas. Solo deja pasar a una cuenta real de Firebase
-// cuyo rol este en rolesPermitidos. El encargado entra a todas las vistas.
+// Envuelve las vistas internas. Solo deja pasar a una cuenta que tenga
+// ficha de empleado EN ESTE LOCAL y con un rol habilitado para la vista.
+// El encargado entra a todas las vistas de su local; el admin de la
+// plataforma entra a cualquier local para poder dar soporte.
 export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, children }) {
-  const { user, rol, cargando } = useSesion({ anonimoAutomatico: false })
-  const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
+  const { localId, local, nombre: nombreBar, logo, cargando: cargandoLocal } = useLocal()
+  const { user, rol, esAdmin, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
   const [error, setError]       = useState(null)
   const [enviando, setEnviando] = useState(false)
 
-  const permitidos = ['encargado', ...rolesPermitidos]
-  const tieneAcceso = !!user && !user.isAnonymous && permitidos.includes(rol)
-
-  const handleLogin = async (e) => {
-    e?.preventDefault?.()
-    if (!email.trim() || !password) return
+  const handleEntrar = async () => {
     setEnviando(true); setError(null)
     try {
-      await iniciarSesionPersonal(email, password)
-      setPassword('')
+      await entrarConGoogle()
     } catch (err) {
       setError(mensajeDeError(err?.code))
     }
     setEnviando(false)
   }
 
-  if (cargando) return (
+  if (cargando || cargandoLocal) return (
     <div className={styles.pantalla}>
       <div className={styles.caja}>
         <p className={styles.cargando}>Conectando...</p>
@@ -37,54 +36,75 @@ export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, childre
     </div>
   )
 
-  if (tieneAcceso) return children
+  // Sin sesion todavia no sabemos nada del local: las reglas no dejan
+  // leerlo. Primero que entre, despues vemos si el local existe.
+  const sesionAjena = !!user && !user.isAnonymous
 
-  // Sesion iniciada pero con un rol que no corresponde a esta vista.
-  const rolAjeno = !!user && !user.isAnonymous && !permitidos.includes(rol)
-
-  return (
+  if (!sesionAjena) return (
     <div className={styles.pantalla}>
-      <form className={styles.caja} onSubmit={handleLogin}>
-        <img src={getLogo()} alt="Logo" className={styles.logo}
+      <div className={styles.caja}>
+        <img src={logo} alt="Logo" className={styles.logo}
           onError={e => e.target.style.display='none'} />
-        <h2 className={styles.titulo}>{getNombreBar()}</h2>
+        <h2 className={styles.titulo}>{nombreBar}</h2>
         <p className={styles.subtitulo}>{emoji} Acceso {titulo}</p>
 
-        {rolAjeno ? (
-          <>
-            <p className={styles.aviso}>
-              Esta sesion ({user.email}) no tiene permiso para entrar a {titulo}.
-              {rol ? ` Su rol es "${rol}".` : ' Su usuario todavia no tiene un rol asignado.'}
-            </p>
-            <button type="button" className="btn btn-ghost" style={{marginTop:12}}
-              onClick={() => cerrarSesion()}>
-              Cambiar de cuenta
-            </button>
-          </>
-        ) : (
-          <>
-            <label className={styles.label}>Email</label>
-            <input className="input" type="email" autoComplete="username"
-              placeholder="cocina@tubar.com" value={email}
-              onChange={e => { setEmail(e.target.value); setError(null) }} autoFocus />
+        <p className={styles.ayuda} style={{marginBottom:18}}>
+          Entra con la cuenta de Google que le pasaste al encargado.
+        </p>
 
-            <label className={styles.label} style={{marginTop:12}}>Contrasena</label>
-            <input className="input" type="password" autoComplete="current-password"
-              placeholder="Contrasena" value={password}
-              onChange={e => { setPassword(e.target.value); setError(null) }} />
+        <BotonGoogle onClick={handleEntrar} enviando={enviando} />
 
-            {error && <p className={styles.error}>{error}</p>}
+        {error && <p className={styles.error}>{error}</p>}
 
-            <button type="submit" className="btn btn-gold" style={{marginTop:18}}
-              disabled={enviando || !email.trim() || !password}>
-              {enviando ? 'Entrando...' : 'Entrar'}
-            </button>
-            <p className={styles.ayuda}>
-              La sesion queda guardada en este dispositivo.
-            </p>
-          </>
-        )}
-      </form>
+        <p className={styles.ayuda} style={{marginTop:14}}>
+          No hay contrasenas que recordar. La sesion queda guardada en este
+          dispositivo.
+        </p>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
+
+  // La URL apunta a un local que no existe. Mejor decirlo claro que
+  // mostrar un acceso que nunca va a funcionar.
+  if (!local) return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <h2 className={styles.titulo}>Local no encontrado</h2>
+        <p className={styles.aviso}>
+          No existe ningun local con el identificador "{localId}". Revisa la
+          direccion.
+        </p>
+        <Link to="/login" className="btn btn-ghost" style={{marginTop:12}}>Ir al acceso</Link>
+      </div>
+    </div>
+  )
+
+  // La vista necesita saber con que sombrero entro la persona, para poder
+  // esconder lo que no va a poder hacer.
+  if (tieneAcceso) return (
+    <AccesoProvider rol={rol} esAdmin={esAdmin}>{children}</AccesoProvider>
+  )
+
+  // Entro con una cuenta real, pero sin permiso para esta vista de este local.
+  return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <img src={logo} alt="Logo" className={styles.logo}
+          onError={e => e.target.style.display='none'} />
+        <h2 className={styles.titulo}>{nombreBar}</h2>
+        <p className={styles.subtitulo}>{emoji} Acceso {titulo}</p>
+
+        <p className={styles.aviso}>
+          {rol
+            ? `Tu cuenta (${user.email}) tiene el rol "${rol}" en ${nombreBar}, que no puede entrar a ${titulo}.`
+            : `Tu cuenta (${user.email}) no pertenece al equipo de ${nombreBar}. Pedile al encargado que te invite con este mismo email.`}
+        </p>
+        <button type="button" className="btn btn-ghost" style={{marginTop:12}}
+          onClick={() => cerrarSesion()}>
+          Cambiar de cuenta
+        </button>
+      </div>
       <footer className={styles.footer}>{getCopyright()}</footer>
     </div>
   )

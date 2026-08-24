@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, getDoc, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '../firebase/config'
-import { getCopyright, getNombreBar, getLogo, APP_CONFIG } from '../config'
+import { onSnapshot, updateDoc, query, orderBy, getDoc, addDoc, serverTimestamp } from 'firebase/firestore'
+import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
-import { suscribirCarta, confirmarPedido, agregarPedidoExtra } from '../firebase/mesa'
+import { suscribirCarta, agregarPedidoExtra } from '../firebase/mesa'
+import { refMesa, colPedidos, refPedido, colLlamadas, refLlamada } from '../firebase/rutas'
+import { useLocal } from '../utils/LocalContext'
 import styles from './MozoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
 import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta, activarAudio } from '../utils/sonidos'
 import { cerrarSesion } from '../firebase/auth'
-
-const NUMS_MESAS = Array.from({ length: APP_CONFIG.mesas.cantidad }, (_, i) => String(i + 1))
 
 const CATEGORIAS = {
   comida:           { label: 'Comidas',   emoji: '🍽️' },
@@ -20,6 +19,7 @@ const CATEGORIAS = {
 }
 
 export default function MozoPage() {
+  const { localId, nombre: nombreBar, logo } = useLocal()
   const [mozoActivo, setMozoActivo]       = useState(null)
   const [mesas, setMesas]                 = useState({})
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
@@ -34,15 +34,15 @@ export default function MozoPage() {
   const { agregar: notif, NotifBanner }   = useNotificaciones()
 
   const [mozos, setMozos] = useState([])
-  const [cantMesas, setCantMesas] = useState(APP_CONFIG.mesas.cantidad)
+  const [cantMesas, setCantMesas] = useState(MESAS_POR_DEFECTO)
 
   useEffect(() => {
-    const unsub = suscribirConfiguracion((cfg) => {
+    const unsub = suscribirConfiguracion(localId, (cfg) => {
       if (cfg?.mozos) setMozos(cfg.mozos)
       if (cfg?.mesas?.cantidad) setCantMesas(cfg.mesas.cantidad)
     })
     return unsub
-  }, [])
+  }, [localId])
   const listosAnteriores = useRef({})
   const llamadasAnteriores = useRef({})
   const cuentasAnteriores = useRef({})
@@ -52,18 +52,18 @@ export default function MozoPage() {
     if (!mozoActivo) return
     const NUMS_MESAS = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
     const unsubs = NUMS_MESAS.map(num => {
-      const u1 = onSnapshot(doc(db, 'mesas', `mesa_${num}`), snap => {
+      const u1 = onSnapshot(refMesa(localId, num), snap => {
         if (snap.exists()) setMesas(prev => ({ ...prev, [num]: { id: snap.id, ...snap.data() } }))
       })
       const u2 = onSnapshot(
-        query(collection(db, 'mesas', `mesa_${num}`, 'pedidos'), orderBy('created_at', 'asc')),
+        query(colPedidos(localId, num), orderBy('created_at', 'asc')),
         snap => {
           const pedidos = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.estado !== 'entregado')
           setPedidosPorMesa(prev => ({ ...prev, [num]: pedidos }))
         }
       )
       const u3 = onSnapshot(
-        query(collection(db, 'mesas', `mesa_${num}`, 'llamadas'), orderBy('created_at', 'desc')),
+        query(colLlamadas(localId, num), orderBy('created_at', 'desc')),
         snap => {
           const llamadas = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.estado === 'pendiente')
           setLlamadasPorMesa(prev => ({ ...prev, [num]: llamadas }))
@@ -72,10 +72,10 @@ export default function MozoPage() {
       return () => { u1(); u2(); u3() }
     })
     return () => unsubs.forEach(u => u())
-  }, [mozoActivo, cantMesas])
+  }, [localId, mozoActivo, cantMesas])
 
   useEffect(() => {
-    const unsub = suscribirCarta(setCarta)
+    const unsub = suscribirCarta(localId, setCarta)
     return unsub
   }, [])
 
@@ -120,6 +120,16 @@ export default function MozoPage() {
   }, [pedidosPorMesa, llamadasPorMesa, mesas])
 
   // ── Mis mesas (las asignadas al mozo activo) ──────────────────────────────────
+  // Cuanta gente hay sentada en una mesa. El mozo lo necesita para saber
+  // cuantos vasos, cuantos cubiertos y cuantas cartas llevar: antes esto
+  // solo lo veia el encargado.
+  const personasDe = (num) => {
+    const mesa = mesas[num]
+    const n = mesa?.personas
+    if (!n || mesa?.estado === 'libre') return null
+    return <span className={styles.personasTag}>👥 {n}</span>
+  }
+
   const NUMS_MESAS_ACTUAL = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
   const misMesas = mozoActivo
     ? (mozoActivo.mesas_asignadas?.length > 0 ? mozoActivo.mesas_asignadas : NUMS_MESAS_ACTUAL)
@@ -143,11 +153,11 @@ export default function MozoPage() {
 
   // ── Acciones ──────────────────────────────────────────────────────────────────
   const marcarEntregado = async (mesaId, pedidoId) => {
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId), { estado: 'entregado' })
+    await updateDoc(refPedido(localId, mesaId, pedidoId), { estado: 'entregado' })
   }
 
   const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const pedidoRef = refPedido(localId, mesaId, pedidoId)
     const snap = await getDoc(pedidoRef)
     if (!snap.exists()) return
     const data = snap.data()
@@ -162,11 +172,11 @@ export default function MozoPage() {
   }
 
   const resolverLlamada = async (mesaId, llamadaId) => {
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`, 'llamadas', llamadaId), { estado: 'resuelto' })
+    await updateDoc(refLlamada(localId, mesaId, llamadaId), { estado: 'resuelto' })
   }
 
   const marcarMesaCobrada = async (mesaId) => {
-    await updateDoc(doc(db, 'mesas', `mesa_${mesaId}`), { estado: 'cuenta_cobrada' })
+    await updateDoc(refMesa(localId, mesaId), { estado: 'cuenta_cobrada' })
   }
 
   // ── Cargar pedido desde la vista del mozo ────────────────────────────────────
@@ -192,18 +202,18 @@ export default function MozoPage() {
     try {
       const mesa = mesas[mesaPedido]
       if (mesa?.carrito_bloqueado) {
-        await agregarPedidoExtra(mesaPedido, carritoMozo, `mozo_${mozoActivo.id}`)
+        await agregarPedidoExtra(localId, mesaPedido, carritoMozo, `mozo_${mozoActivo.id}`)
       } else {
         // Cargar directo como pedido confirmado
         const total = carritoMozo.reduce((a, i) => a + i.precio * i.cantidad, 0)
-        await addDoc(collection(db, 'mesas', `mesa_${mesaPedido}`, 'pedidos'), {
+        await addDoc(colPedidos(localId, mesaPedido), {
           items: carritoMozo,
           estado: 'pendiente',
           confirmado_por: `mozo_${mozoActivo.id}`,
           total,
           created_at: serverTimestamp(),
         })
-        await updateDoc(doc(db, 'mesas', `mesa_${mesaPedido}`), {
+        await updateDoc(refMesa(localId, mesaPedido), {
           carrito_bloqueado: true,
           total_acumulado: (mesa?.total_acumulado || 0) + total,
           estado: 'esperando_preparacion',
@@ -220,8 +230,8 @@ export default function MozoPage() {
   if (!mozoActivo) return (
     <div className={styles.login}>
       <div className={styles.loginBox}>
-        <img src={getLogo()} alt="Logo" className={styles.loginLogo} onError={e => e.target.style.display='none'} />
-        <h2 className={styles.loginTitle}>{getNombreBar()}</h2>
+        <img src={logo} alt="Logo" className={styles.loginLogo} onError={e => e.target.style.display='none'} />
+        <h2 className={styles.loginTitle}>{nombreBar}</h2>
         <p className={styles.loginSub}>¿Quién sos?</p>
         <div className={styles.mozosBtns}>
           {mozos.map(m => (
@@ -241,10 +251,10 @@ export default function MozoPage() {
     <div className={styles.app}>
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <img src={getLogo()} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
+          <img src={logo} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
           <div>
             <span className={styles.headerNombre}>{mozoActivo.nombre}</span>
-            <span className={styles.headerRol}>Mozo · {getNombreBar()}</span>
+            <span className={styles.headerRol}>Mozo · {nombreBar}</span>
           </div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -290,6 +300,7 @@ export default function MozoPage() {
                     <div key={l.id} className={`${styles.card} ${styles.cardYellow}`}>
                       <div className={styles.cardHeader}>
                         <span className={styles.mesaTag}>Mesa {l.mesaId}</span>
+                        {personasDe(l.mesaId)}
                         <span style={{fontSize:'0.82em', color:'var(--text2)'}}>{l.cliente}</span>
                       </div>
                       <p style={{fontSize:'0.9em', margin:'8px 0'}}>{l.nota}</p>
@@ -307,6 +318,7 @@ export default function MozoPage() {
                     <div key={p.id} className={`${styles.card} ${styles.cardGreen}`}>
                       <div className={styles.cardHeader}>
                         <span className={styles.mesaTag}>Mesa {p.mesaId}</span>
+                        {personasDe(p.mesaId)}
                         <button className={styles.entregarBtn} onClick={() => marcarEntregado(p.mesaId, p.id)}>
                           Marcar entregado ✓
                         </button>
@@ -330,6 +342,7 @@ export default function MozoPage() {
                     <div key={p.id} className={`${styles.card} ${styles.cardBlue}`}>
                       <div className={styles.cardHeader}>
                         <span className={styles.mesaTag}>Mesa {p.mesaId}</span>
+                        {personasDe(p.mesaId)}
                       </div>
                       {p.items.filter(i => i.destino==='mozo').map((item, idx) => (
                         <div key={idx} className={styles.itemRow}>
@@ -358,6 +371,7 @@ export default function MozoPage() {
                     <div key={mesa.mesa_numero} className={`${styles.card} ${styles.cardRed}`}>
                       <div className={styles.cardHeader}>
                         <span className={styles.mesaTag}>Mesa {mesa.mesa_numero}</span>
+                        {personasDe(mesa.mesa_numero)}
                         <span className={styles.metodoPago}>
                           {mesa.metodo_pago==='tarjeta'?'💳 Llevar posnet':mesa.metodo_pago==='efectivo'?'💵 Llevar ticket':'📲 Transferencia'}
                         </span>
@@ -389,6 +403,7 @@ export default function MozoPage() {
               <div key={num} className={styles.mesaDetalle}>
                 <div className={styles.mesaDetalleHeader}>
                   <span className={styles.mesaTag}>Mesa {num}</span>
+                  {personasDe(num)}
                   <span style={{fontSize:'0.82em',color:'var(--text2)'}}>
                     {mesa?.estado==='libre'?'⬜ Libre':mesa?.clientes?.join(', ')||'Ocupada'}
                   </span>

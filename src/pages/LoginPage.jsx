@@ -1,39 +1,119 @@
-import { Link } from 'react-router-dom'
-import { getNombreBar, getLogo, getCopyright } from '../config'
+import { useState, useEffect } from 'react'
+import { Link, Navigate } from 'react-router-dom'
+import { useSesion, usePertenencia } from '../utils/useSesion'
+import { entrarConGoogle, cerrarSesion, mensajeDeError } from '../firebase/auth'
+import { buscarInvitacion, aceptarInvitacion } from '../firebase/locales'
+import { getCopyright, getLogoDefecto, getNombrePlataforma } from '../config'
+import BotonGoogle from '../components/BotonGoogle'
+import styles from '../components/PuertaDeAcceso.module.css'
 
-// Pantalla puente para el personal: cada vista pide su propia cuenta.
-const VISTAS = [
-  { to: '/encargado', emoji: '🧑‍💼', label: 'Encargado', desc: 'Salon, carta, caja e historial' },
-  { to: '/cocina',    emoji: '👨‍🍳', label: 'Cocina',    desc: 'Comandas para preparar' },
-  { to: '/mozo',      emoji: '🧍',   label: 'Mozo',      desc: 'Alertas y pedidos de tus mesas' },
-]
+// Puerta de entrada del personal cuando no viene por el link de su
+// local. Aca todavia no sabemos a que negocio pertenece la cuenta: se
+// resuelve despues de entrar, leyendo usuarios/{uid}.local_id, y si no
+// hay nada, viendo si alguien dejo una invitacion a ese email.
+const VISTA_POR_ROL = {
+  encargado: 'encargado',
+  cocina:    'cocina',
+  mozo:      'mozo',
+}
 
 export default function LoginPage() {
+  const { user, cargando } = useSesion({ anonimoAutomatico: false })
+  const { pertenencia, esAdmin, cargando: cargandoPertenencia } = usePertenencia(user)
+  const [error, setError]       = useState(null)
+  const [enviando, setEnviando] = useState(false)
+  const [canjeando, setCanjeando] = useState(false)
+  const [reciencanjeado, setRecienCanjeado] = useState(null)
+
+  const handleEntrar = async () => {
+    setEnviando(true); setError(null)
+    try {
+      await entrarConGoogle()
+    } catch (err) {
+      setError(mensajeDeError(err?.code))
+    }
+    setEnviando(false)
+  }
+
+  // Primera vez de alguien a quien invitaron: no tiene ficha todavia,
+  // pero si una invitacion esperando. Se canjea sola.
+  useEffect(() => {
+    let vivo = true
+    if (!user || user.isAnonymous) return
+    if (cargandoPertenencia || pertenencia?.local_id || esAdmin) return
+    setCanjeando(true)
+    buscarInvitacion(user.email)
+      .then(inv => inv ? aceptarInvitacion(user) : null)
+      .then(res => { if (vivo) { setRecienCanjeado(res); setCanjeando(false) } })
+      .catch(() => { if (vivo) setCanjeando(false) })
+    return () => { vivo = false }
+  }, [user, cargandoPertenencia, pertenencia, esAdmin])
+
+  const esperando = cargando
+    || (user && !user.isAnonymous && (cargandoPertenencia || canjeando))
+
+  if (esperando) return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}><p className={styles.cargando}>Conectando...</p></div>
+    </div>
+  )
+
+  // El admin del SaaS va derecho a su panel.
+  if (user && !user.isAnonymous && esAdmin) {
+    return <Navigate to="/admin" replace />
+  }
+
+  // El personal va a la vista que le corresponde en SU local.
+  const destino = pertenencia?.local_id
+    ? { local: pertenencia.local_id, rol: pertenencia.rol }
+    : reciencanjeado
+      ? { local: reciencanjeado.localId, rol: reciencanjeado.rol }
+      : null
+
+  if (user && !user.isAnonymous && destino) {
+    return <Navigate to={`/l/${destino.local}/${VISTA_POR_ROL[destino.rol] || 'encargado'}`} replace />
+  }
+
+  // Cuenta real, pero sin local, sin invitacion y sin permisos de plataforma.
+  const sesionHuerfana = !!user && !user.isAnonymous
+
   return (
-    <div className="pantallaEstado" style={{alignItems:'center'}}>
-      <div style={{width:'100%', maxWidth:380}}>
-        <img src={getLogo()} alt="Logo" style={{width:64, height:64, objectFit:'contain', display:'block', margin:'0 auto 16px'}}
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <img src={getLogoDefecto()} alt="Logo" className={styles.logo}
           onError={e => e.target.style.display='none'} />
-        <h2 style={{textAlign:'center', color:'var(--gold)', margin:0}}>{getNombreBar()}</h2>
-        <p style={{textAlign:'center', color:'var(--text2)', fontSize:'0.9em', margin:'6px 0 24px'}}>
-          Acceso del personal
-        </p>
-        {VISTAS.map(v => (
-          <Link key={v.to} to={v.to} className="card" style={{
-            display:'flex', alignItems:'center', gap:14, marginBottom:12,
-            textDecoration:'none', color:'inherit', padding:'14px 16px'
-          }}>
-            <span style={{fontSize:'1.6em'}}>{v.emoji}</span>
-            <span style={{display:'flex', flexDirection:'column'}}>
-              <strong style={{fontSize:'0.95em'}}>{v.label}</strong>
-              <span style={{color:'var(--text2)', fontSize:'0.8em'}}>{v.desc}</span>
-            </span>
-          </Link>
-        ))}
-        <p style={{color:'var(--text3)', fontSize:'0.72em', textAlign:'center', marginTop:24}}>
-          {getCopyright()}
-        </p>
+        <h2 className={styles.titulo}>{getNombrePlataforma()}</h2>
+        <p className={styles.subtitulo}>Acceso del personal</p>
+
+        {sesionHuerfana ? (
+          <>
+            <p className={styles.aviso}>
+              La cuenta {user.email} no esta asociada a ningun local. Pedile al
+              encargado de tu bar que te invite con este mismo email.
+            </p>
+            <button type="button" className="btn btn-ghost" style={{marginTop:12}}
+              onClick={() => cerrarSesion()}>
+              Cambiar de cuenta
+            </button>
+          </>
+        ) : (
+          <>
+            <p className={styles.ayuda} style={{marginBottom:18}}>
+              Entra con tu cuenta de Google. Sin contrasenas.
+            </p>
+
+            <BotonGoogle onClick={handleEntrar} enviando={enviando} />
+
+            {error && <p className={styles.error}>{error}</p>}
+
+            <p className={styles.ayuda} style={{marginTop:20}}>
+              ¿Todavia no tenes tu bar en {getNombrePlataforma()}?{' '}
+              <Link to="/registro" style={{color:'var(--gold)'}}>Crear una cuenta</Link>
+            </p>
+          </>
+        )}
       </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
     </div>
   )
 }

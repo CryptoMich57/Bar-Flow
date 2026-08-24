@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, onSnapshot, doc, updateDoc, query, orderBy, getDoc, getDocs } from 'firebase/firestore'
-import { db } from '../firebase/config'
-import { getCopyright, getNombreBar, getLogo } from '../config'
+import { onSnapshot, updateDoc, query, orderBy, getDoc, getDocs } from 'firebase/firestore'
+import { getCopyright } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
+import { colPedidos, refPedido, colHistorial } from '../firebase/rutas'
+import { useLocal } from '../utils/LocalContext'
 import styles from './CocinaPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
@@ -13,15 +14,17 @@ import { cerrarSesion } from '../firebase/auth'
 
 export default function CocinaPage() {
   // Quien puede entrar aca lo decide PuertaDeAcceso con una cuenta real
-  // de Firebase; esta vista ya se renderiza solo si el rol es valido.
+  // de Firebase; esta vista ya se renderiza solo si el rol es valido
+  // PARA ESTE local. El localId sale de la URL, no de la sesion.
+  const { localId, nombre: nombreBar, logo } = useLocal()
   const [cantidadMesas, setCantidadMesas] = useState(10)
 
   useEffect(() => {
-    const unsub = suscribirConfiguracion((cfg) => {
+    const unsub = suscribirConfiguracion(localId, (cfg) => {
       if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
     })
     return unsub
-  }, [])
+  }, [localId])
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
   const [historialDia, setHistorialDia]     = useState([])
   const [tab, setTab]                 = useState('activos')
@@ -34,7 +37,7 @@ export default function CocinaPage() {
   useEffect(() => {
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num => {
-      const q = query(collection(db, 'mesas', `mesa_${num}`, 'pedidos'), orderBy('created_at', 'asc'))
+      const q = query(colPedidos(localId, num), orderBy('created_at', 'asc'))
       return onSnapshot(q, snap => {
         const pedidos = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -45,7 +48,7 @@ export default function CocinaPage() {
       })
     })
     return () => unsubs.forEach(u => u())
-  }, [cantidadMesas])
+  }, [localId, cantidadMesas])
 
   // ── Historial del día ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -55,7 +58,7 @@ export default function CocinaPage() {
       const todos = []
       const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
       for (const num of numsMesas) {
-        const snap = await getDocs(collection(db, 'mesas', `mesa_${num}`, 'pedidos'))
+        const snap = await getDocs(colPedidos(localId, num))
         snap.docs.forEach(d => {
           const data = { id: d.id, mesaId: num, ...d.data() }
           const itemsCocina = (data.items || []).filter(i => i.destino === 'cocina')
@@ -63,7 +66,7 @@ export default function CocinaPage() {
         })
       }
       // También del historial cerrado hoy
-      const histSnap = await getDocs(collection(db, 'historial'))
+      const histSnap = await getDocs(colHistorial(localId))
       const cerradosHoy = histSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(d => d.fecha_hora_cierre?.toDate?.() >= hoy)
@@ -79,7 +82,7 @@ export default function CocinaPage() {
       setHistorialDia([...todos, ...cerradosHoy])
     }
     cargarHistorial()
-  }, [tab, cantidadMesas])
+  }, [localId, tab, cantidadMesas])
 
   // ── Detectar pedidos nuevos — sonido + notificación ─────────────────────────
   useEffect(() => {
@@ -101,7 +104,7 @@ export default function CocinaPage() {
 
   // ── Cambiar estado ítem ──────────────────────────────────────────────────────
   const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = doc(db, 'mesas', `mesa_${mesaId}`, 'pedidos', pedidoId)
+    const pedidoRef = refPedido(localId, mesaId, pedidoId)
     const snap = await getDoc(pedidoRef)
     if (!snap.exists()) return
     const dataCompleta = snap.data()
@@ -130,8 +133,8 @@ export default function CocinaPage() {
     <div className={styles.app}>
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <img src={getLogo()} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
-          <h1 className={styles.title}>👨‍🍳 Cocina — {getNombreBar()}</h1>
+          <img src={logo} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
+          <h1 className={styles.title}>👨‍🍳 Cocina — {nombreBar}</h1>
         </div>
         <div className={styles.headerRight}>
           {pendientes.length > 0 && <span className={styles.countRed}>{pendientes.length} pendiente{pendientes.length>1?'s':''}</span>}

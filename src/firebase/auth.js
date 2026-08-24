@@ -1,22 +1,30 @@
 // ============================================================
 //  SESIONES Y ROLES
-//  - El cliente de la mesa entra sin registrarse: Firebase le da una
-//    identidad anonima para que las reglas puedan exigir sesion sin
-//    pedirle absolutamente nada al comensal.
-//  - El personal (encargado, cocina, mozo) usa cuentas reales de
-//    Firebase Authentication. El rol vive en /usuarios/{uid}.rol y es
-//    lo unico que las reglas de Firestore miran para dar permisos.
+//
+//  - El comensal entra sin registrarse: Firebase le da una identidad
+//    anonima para que las reglas puedan exigir sesion sin pedirle
+//    nada a la persona que se sento en la mesa.
+//  - El personal entra con su cuenta de Google. No hay contrasenas
+//    en ningun lado: nadie las olvida, nadie las anota en un papel
+//    al lado de la caja, y no tenemos que guardarlas.
+//  - El rol NO es una propiedad de la cuenta: vive en
+//    locales/{localId}/empleados/{uid}. La misma cuenta puede ser
+//    encargado en un local y no existir en ningun otro.
+//  - El admin de la plataforma esta en superadmins/{uid} y solo se
+//    da de alta desde la consola de Firebase.
 // ============================================================
 import {
+  GoogleAuthProvider,
   signInAnonymously,
-  signInWithEmailAndPassword,
+  signInWithPopup,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
   signOut,
 } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db } from './config'
+import { getDoc } from 'firebase/firestore'
+import { auth } from './config'
+import { refEmpleado, refUsuario, refSuperadmin } from './rutas'
 
 export const ROLES = ['encargado', 'cocina', 'mozo']
 
@@ -33,11 +41,17 @@ export const asegurarSesionAnonima = () => {
   return promesaAnonima
 }
 
-export const iniciarSesionPersonal = async (email, password) => {
+// Entrada del personal y de quien registra un bar nuevo. Una sola
+// puerta para todos: no hay pantalla de "crear cuenta" separada.
+export const entrarConGoogle = async () => {
   // La sesion queda guardada en el dispositivo: el equipo del local
-  // se loguea una vez y no vuelve a pedir la clave.
+  // entra una vez y no vuelve a ver ninguna pantalla de acceso.
   await setPersistence(auth, browserLocalPersistence)
-  const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password)
+  const proveedor = new GoogleAuthProvider()
+  // Que siempre pregunte con que cuenta entrar: en el celular del bar
+  // suele haber varias, y la primera vez conviene elegir a conciencia.
+  proveedor.setCustomParameters({ prompt: 'select_account' })
+  const cred = await signInWithPopup(auth, proveedor)
   return cred.user
 }
 
@@ -46,42 +60,66 @@ export const cerrarSesion = async () => {
   await signOut(auth)
 }
 
-export const leerRol = async (uid) => {
-  const snap = await getDoc(doc(db, 'usuarios', uid))
-  return snap.exists() ? (snap.data().rol || null) : null
+// El rol que vale para los permisos: el que esta en ESTE local.
+// Si la persona no trabaja aca, no hay ficha y no hay rol. Punto.
+export const leerRolEnLocal = async (localId, uid) => {
+  if (!localId || !uid) return null
+  try {
+    const snap = await getDoc(refEmpleado(localId, uid))
+    if (!snap.exists()) return null
+    const datos = snap.data()
+    if (datos.activo === false) return null
+    return datos.rol || null
+  } catch {
+    return null
+  }
 }
 
-// Observa la sesion y resuelve el rol. Devuelve la funcion para desuscribirse.
+// Atajo de navegacion: a que local pertenece esta cuenta. Sirve para
+// mandar a la persona a su local despues del login, no para dar
+// permisos.
+export const leerPertenencia = async (uid) => {
+  if (!uid) return null
+  try {
+    const snap = await getDoc(refUsuario(uid))
+    return snap.exists() ? snap.data() : null
+  } catch {
+    return null
+  }
+}
+
+export const leerEsAdminPlataforma = async (uid) => {
+  if (!uid) return false
+  try {
+    const snap = await getDoc(refSuperadmin(uid))
+    return snap.exists()
+  } catch {
+    return false
+  }
+}
+
+// Observa la sesion. Devuelve la funcion para desuscribirse.
+// No resuelve roles: eso depende del local que se este mirando y lo
+// hace useAcceso, que si conoce la URL.
 export const suscribirSesion = (callback) => {
-  return onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-      callback({ user: null, rol: null, cargando: false })
-      return
-    }
-    if (user.isAnonymous) {
-      callback({ user, rol: 'cliente', cargando: false })
-      return
-    }
-    let rol = null
-    try {
-      rol = await leerRol(user.uid)
-    } catch {
-      rol = null
-    }
-    callback({ user, rol, cargando: false })
+  return onAuthStateChanged(auth, (user) => {
+    callback({ user: user || null, cargando: false })
   })
 }
 
 // Mensajes de error de Firebase traducidos a algo que se pueda leer.
 export const mensajeDeError = (codigo) => {
   switch (codigo) {
-    case 'auth/invalid-email':        return 'Ese email no es valido.'
-    case 'auth/user-disabled':        return 'Esta cuenta esta deshabilitada.'
-    case 'auth/user-not-found':
-    case 'auth/wrong-password':
-    case 'auth/invalid-credential':   return 'Email o contrasena incorrectos.'
-    case 'auth/too-many-requests':    return 'Demasiados intentos. Espera unos minutos.'
-    case 'auth/network-request-failed': return 'Sin conexion. Revisa internet.'
-    default:                          return 'No se pudo iniciar sesion.'
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':  return 'Cerraste la ventana de Google antes de terminar.'
+    case 'auth/popup-blocked':            return 'El navegador bloqueo la ventana de Google. Permitila y volve a intentar.'
+    case 'auth/account-exists-with-different-credential':
+                                          return 'Ya existe una cuenta con ese email por otro medio de acceso.'
+    case 'auth/user-disabled':            return 'Esta cuenta esta deshabilitada.'
+    case 'auth/too-many-requests':        return 'Demasiados intentos. Espera unos minutos.'
+    case 'auth/network-request-failed':   return 'Sin conexion. Revisa internet.'
+    case 'auth/unauthorized-domain':      return 'Este dominio no esta autorizado en Firebase Authentication.'
+    case 'auth/operation-not-allowed':    return 'El acceso con Google no esta habilitado en Firebase.'
+    default:                              return 'No se pudo completar la operacion.'
   }
 }

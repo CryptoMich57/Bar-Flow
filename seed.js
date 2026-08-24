@@ -1,5 +1,11 @@
-// Script para cargar datos iniciales en Firestore
-// Ejecutar con: node seed.js
+// Script para cargar la carta y las mesas de ejemplo en UN local.
+//
+// Ahora que BarFlow es multi-local, hay que decir en cual cargar:
+//   node --env-file=.env seed.js mi-bar
+//
+// El local tiene que existir (se crea desde /registro) y la cuenta que
+// corre el script tiene que ser encargado de ese local, porque las
+// reglas de Firestore validan permisos por local.
 
 import { initializeApp } from 'firebase/app'
 import { getFirestore, doc, setDoc } from 'firebase/firestore'
@@ -16,11 +22,19 @@ const firebaseConfig = {
 }
 
 if (!firebaseConfig.projectId) {
-  console.error('Falta el .env. Ejecutar con: node --env-file=.env seed.js')
+  console.error('Falta el .env. Ejecutar con: node --env-file=.env seed.js <localId>')
   process.exit(1)
 }
 
-console.log('Cargando datos en el proyecto:', firebaseConfig.projectId)
+const localId = process.argv[2]
+if (!localId) {
+  console.error('Falta el local. Ejecutar con: node --env-file=.env seed.js <localId>')
+  console.error('Ejemplo: node --env-file=.env seed.js bar-la-esquina')
+  process.exit(1)
+}
+
+console.log('Proyecto:', firebaseConfig.projectId)
+console.log('Local:   ', localId)
 
 const app = initializeApp(firebaseConfig)
 const db = getFirestore(app)
@@ -51,13 +65,13 @@ async function seed() {
   console.log('🔥 Cargando carta...')
   for (const item of carta) {
     const { id, ...data } = item
-    await setDoc(doc(db, 'carta', id), data)
+    await setDoc(doc(db, 'locales', localId, 'carta', id), data)
     console.log(`  ✅ ${item.nombre}`)
   }
 
   console.log('\n🔥 Cargando mesas...')
   for (const num of mesas) {
-    await setDoc(doc(db, 'mesas', `mesa_${num}`), {
+    await setDoc(doc(db, 'locales', localId, 'mesas', `mesa_${num}`), {
       estado: 'libre',
       mesa_numero: num,
       clientes: [],

@@ -5,9 +5,10 @@ import {
   confirmarPedido, agregarPedidoExtra, suscribirPedidos,
   suscribirCarta, pedirCuenta, enviarMensaje, suscribirMensajes
 } from '../firebase/mesa'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { db } from '../firebase/config'
-import { getCopyright, getTextos, getNombreBar, getLogo } from '../config'
+import { addDoc, serverTimestamp } from 'firebase/firestore'
+import { colLlamadas } from '../firebase/rutas'
+import { useLocal } from '../utils/LocalContext'
+import { getCopyright, getTextos } from '../config'
 import { cargarConfiguracion } from '../firebase/configuracion'
 import styles from './MesaPage.module.css'
 import { sonidoMensaje, activarAudio } from '../utils/sonidos'
@@ -40,14 +41,16 @@ const CATEGORIAS = {
 }
 
 export default function MesaPage() {
+  // El QR de la mesa trae el local y el numero: /l/:localId/mesa/:mesaId
+  const { localId, nombre: nombreBar, logo } = useLocal()
   const { mesaId } = useParams()
   const dispositivoId = getDispositivoId()
   const textos = getTextos()
   const [configApp, setConfigApp] = useState(null)
 
   useEffect(() => {
-    cargarConfiguracion().then(setConfigApp)
-  }, [])
+    cargarConfiguracion(localId).then(setConfigApp)
+  }, [localId])
 
   // Recuperar sesión guardada
   const sesionGuardada = cargarSesion(mesaId)
@@ -79,14 +82,14 @@ export default function MesaPage() {
   // Si hay sesión guardada, registrar dispositivo en firebase al montar
   useEffect(() => {
     if (sesionGuardada && paso === 'carta') {
-      ocuparMesa(mesaId, sesionGuardada.nombre, dispositivoId, sesionGuardada.personas)
+      ocuparMesa(localId, mesaId, sesionGuardada.nombre, dispositivoId, sesionGuardada.personas)
         .catch(() => {})
     }
   }, [])
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
-    const unsub = suscribirMesa(mesaId, (data) => {
+    const unsub = suscribirMesa(localId, mesaId, (data) => {
       setMesa(data)
       // Si el encargado liberó la mesa, limpiar sesión y mostrar despedida
       if (data?.estado === 'libre' && paso === 'carta') {
@@ -99,18 +102,18 @@ export default function MesaPage() {
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
-    const unsub = suscribirPedidos(mesaId, setPedidos)
+    const unsub = suscribirPedidos(localId, mesaId, setPedidos)
     return unsub
   }, [mesaId, paso])
 
   useEffect(() => {
-    const unsub = suscribirCarta(setCarta)
+    const unsub = suscribirCarta(localId, setCarta)
     return unsub
   }, [])
 
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
-    const unsub = suscribirMensajes(mesaId, (msgs) => {
+    const unsub = suscribirMensajes(localId, mesaId, (msgs) => {
       const hayNuevo = msgs.some(m => !mensajesAnteriores.current[m.id] && m.autor !== nombre)
       if (hayNuevo && Object.keys(mensajesAnteriores.current).length > 0) sonidoMensaje()
       const map = {}; msgs.forEach(m => map[m.id] = true)
@@ -126,7 +129,7 @@ export default function MesaPage() {
     setCargando(true)
     setError(null)
     try {
-      await ocuparMesa(mesaId, nombre.trim(), dispositivoId, personas)
+      await ocuparMesa(localId, mesaId, nombre.trim(), dispositivoId, personas)
       guardarSesion(mesaId, nombre.trim(), personas)
       setPaso('carta')
     } catch (e) { setError('No se pudo conectar con la mesa. Intentá de nuevo.') }
@@ -138,7 +141,7 @@ export default function MesaPage() {
     if (!notaMozo.trim()) return
     setCargando(true)
     try {
-      await addDoc(collection(db, 'mesas', `mesa_${mesaId}`, 'llamadas'), {
+      await addDoc(colLlamadas(localId, mesaId), {
         nota: notaMozo.trim(), cliente: nombre,
         estado: 'pendiente', created_at: serverTimestamp(),
       })
@@ -160,7 +163,7 @@ export default function MesaPage() {
         return [...prev, { ...item, cantidad: 1, nota }]
       })
     } else {
-      try { await agregarAlCarrito(mesaId, { ...item, nota }) }
+      try { await agregarAlCarrito(localId, mesaId, { ...item, nota }) }
       catch (e) { setError(e.message) }
     }
   }
@@ -171,7 +174,7 @@ export default function MesaPage() {
         prev.map(i => i.id === itemId ? { ...i, cantidad: i.cantidad - 1 } : i).filter(i => i.cantidad > 0)
       )
     } else {
-      await quitarDelCarrito(mesaId, itemId)
+      await quitarDelCarrito(localId, mesaId, itemId)
     }
   }
 
@@ -190,10 +193,10 @@ export default function MesaPage() {
       if (esCarritoBloqueado) {
         if (carritoLocal.length === 0) { setCargando(false); return }
         const itemsConNotas = carritoLocal.map(i => ({ ...i, nota: notasPorItem[i.id] || i.nota || '' }))
-        await agregarPedidoExtra(mesaId, itemsConNotas, dispositivoId)
+        await agregarPedidoExtra(localId, mesaId, itemsConNotas, dispositivoId)
         setCarritoLocal([])
       } else {
-        await confirmarPedido(mesaId, dispositivoId)
+        await confirmarPedido(localId, mesaId, dispositivoId)
       }
       setNotasPorItem({})
     } catch (e) { setError(e.message) }
@@ -212,14 +215,14 @@ export default function MesaPage() {
     if (!metodoPago) return
     setCargando(true)
     try {
-      await pedirCuenta(mesaId, metodoPago, calcularPropina(), metodoPago === 'efectivo' ? abonaCon : null)
+      await pedirCuenta(localId, mesaId, metodoPago, calcularPropina(), metodoPago === 'efectivo' ? abonaCon : null)
     } catch (e) { setError(e.message) }
     setCargando(false)
   }
 
   const handleEnviarMensaje = async () => {
     if (!textoMensaje.trim()) return
-    await enviarMensaje(mesaId, textoMensaje.trim(), nombre)
+    await enviarMensaje(localId, mesaId, textoMensaje.trim(), nombre)
     setTextoMensaje('')
   }
 
@@ -234,10 +237,10 @@ export default function MesaPage() {
       </div>
       <div className={styles.splashContent}>
         <div className={styles.splashLogoWrap}>
-          <img src={getLogo()} alt="Logo" className={styles.splashLogo} onError={e => e.target.style.display='none'} />
+          <img src={logo} alt="Logo" className={styles.splashLogo} onError={e => e.target.style.display='none'} />
         </div>
         <h1 className={styles.splashTitle}>{textos.bienvenida.titulo}</h1>
-        <p className={styles.splashBar}>{getNombreBar()}</p>
+        <p className={styles.splashBar}>{nombreBar}</p>
         <p className={styles.splashMesa}>Mesa {mesaId}</p>
         <p className={styles.splashText}>{textos.bienvenida.descripcion}</p>
         <button className={`btn btn-gold ${styles.splashBtn}`} onClick={() => { setPaso('nombre'); activarAudio() }}>
@@ -252,9 +255,9 @@ export default function MesaPage() {
   if (paso === 'nombre') return (
     <div className={styles.centrado}>
       <div className={styles.nombreBox}>
-        <img src={getLogo()} alt="Logo" className={styles.miniLogo} onError={e => e.target.style.display='none'} />
+        <img src={logo} alt="Logo" className={styles.miniLogo} onError={e => e.target.style.display='none'} />
         <h2 className={styles.nombreTitle}>{textos.nombre.titulo}</h2>
-        <p className={styles.nombreSub}>Mesa {mesaId} · {getNombreBar()}</p>
+        <p className={styles.nombreSub}>Mesa {mesaId} · {nombreBar}</p>
         <label className={styles.inputLabel}>Tu nombre o el del grupo</label>
         <input className="input" placeholder="Ej: Mesa de Juan" value={nombre}
           onChange={e => setNombre(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEntrarNombre()} autoFocus />
@@ -282,7 +285,7 @@ export default function MesaPage() {
         <div style={{fontSize:56,marginBottom:16}}>{textos.despedida.emoji}</div>
         <h2 style={{color:'var(--gold)'}}>{textos.despedida.titulo}</h2>
         <p style={{color:'var(--text2)',marginTop:12,lineHeight:1.7}}>{textos.despedida.mensaje}</p>
-        <p style={{color:'var(--text3)',marginTop:16,fontSize:'0.85em'}}>{getNombreBar()}</p>
+        <p style={{color:'var(--text3)',marginTop:16,fontSize:'0.85em'}}>{nombreBar}</p>
       </div>
       <footer className={styles.footer}>{getCopyright()}</footer>
     </div>
@@ -296,7 +299,7 @@ export default function MesaPage() {
 
       <header className={styles.header}>
         <div className={styles.headerLeft}>
-          <img src={getLogo()} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
+          <img src={logo} alt="Logo" className={styles.headerLogo} onError={e => e.target.style.display='none'} />
           <div>
             <span className={styles.mesaLabel}>Mesa {mesaId}</span>
             <span className={styles.nombreLabel}>{nombre}</span>
@@ -542,7 +545,7 @@ export default function MesaPage() {
             <>
               <div className={styles.ticket}>
                 <div className={styles.ticketHeader}>
-                  <span>{getNombreBar()}</span><span>Mesa {mesaId} · {nombre}</span>
+                  <span>{nombreBar}</span><span>Mesa {mesaId} · {nombre}</span>
                 </div>
                 <div className="divider" />
                 {pedidos.map((p, i) => (

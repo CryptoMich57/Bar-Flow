@@ -1,20 +1,29 @@
+// ============================================================
+//  MESAS, CARRITO, PEDIDOS, CHAT Y CUENTA
+//
+//  Todas las funciones reciben el localId como primer argumento y
+//  arman sus rutas con rutas.js. Ninguna escribe un path a mano: es
+//  lo que garantiza que los datos de un negocio no puedan caer en
+//  otro por un descuido.
+// ============================================================
 import {
-  doc, getDoc, setDoc, updateDoc, onSnapshot,
-  collection, addDoc, serverTimestamp, runTransaction,
-  query, orderBy, writeBatch, getDocs
+  getDoc, setDoc, updateDoc, onSnapshot,
+  addDoc, serverTimestamp, runTransaction,
+  query, orderBy, writeBatch, getDocs, doc,
 } from 'firebase/firestore'
 import { db } from './config'
+import {
+  refMesa, colPedidos, colMensajes, colLlamadas, colCarta,
+} from './rutas'
 
-export const getMesaRef = (mesaId) => doc(db, 'mesas', `mesa_${mesaId}`)
-
-export const suscribirMesa = (mesaId, callback) => {
-  return onSnapshot(getMesaRef(mesaId), (snap) => {
+export const suscribirMesa = (localId, mesaId, callback) => {
+  return onSnapshot(refMesa(localId, mesaId), (snap) => {
     callback(snap.exists() ? { id: snap.id, ...snap.data() } : null)
   })
 }
 
-export const ocuparMesa = async (mesaId, nombreCliente, dispositivoId, personas = 1) => {
-  const ref = getMesaRef(mesaId)
+export const ocuparMesa = async (localId, mesaId, nombreCliente, dispositivoId, personas = 1) => {
+  const ref = refMesa(localId, mesaId)
   const snap = await getDoc(ref)
   const data = snap.exists() ? snap.data() : {}
 
@@ -42,8 +51,8 @@ export const ocuparMesa = async (mesaId, nombreCliente, dispositivoId, personas 
   }
 }
 
-export const agregarAlCarrito = async (mesaId, item) => {
-  const ref = getMesaRef(mesaId)
+export const agregarAlCarrito = async (localId, mesaId, item) => {
+  const ref = refMesa(localId, mesaId)
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref)
     if (!snap.exists()) throw new Error('Mesa no existe')
@@ -58,8 +67,8 @@ export const agregarAlCarrito = async (mesaId, item) => {
   })
 }
 
-export const quitarDelCarrito = async (mesaId, itemId) => {
-  const ref = getMesaRef(mesaId)
+export const quitarDelCarrito = async (localId, mesaId, itemId) => {
+  const ref = refMesa(localId, mesaId)
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref)
     const data = snap.data()
@@ -71,8 +80,8 @@ export const quitarDelCarrito = async (mesaId, itemId) => {
   })
 }
 
-export const confirmarPedido = async (mesaId, dispositivoId) => {
-  const ref = getMesaRef(mesaId)
+export const confirmarPedido = async (localId, mesaId, dispositivoId) => {
+  const ref = refMesa(localId, mesaId)
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref)
     if (!snap.exists()) throw new Error('Mesa no existe')
@@ -80,10 +89,10 @@ export const confirmarPedido = async (mesaId, dispositivoId) => {
     if (data.carrito_bloqueado) throw new Error('Ya fue confirmado')
     if (!data.carrito || data.carrito.length === 0) throw new Error('Carrito vacío')
     const total = data.carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
-    const pedidoRef = doc(collection(db, 'mesas', `mesa_${mesaId}`, 'pedidos'))
+    const pedidoRef = doc(colPedidos(localId, mesaId))
     transaction.set(pedidoRef, {
-      items: data.carrito.map(i => ({ 
-        ...i, 
+      items: data.carrito.map(i => ({
+        ...i,
         estado: 'pendiente',
         nota: i.nota || ''
       })),
@@ -101,10 +110,10 @@ export const confirmarPedido = async (mesaId, dispositivoId) => {
   })
 }
 
-export const agregarPedidoExtra = async (mesaId, items, dispositivoId) => {
+export const agregarPedidoExtra = async (localId, mesaId, items, dispositivoId) => {
   const total = items.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
-  const ref = getMesaRef(mesaId)
-  const pedidoRef = doc(collection(db, 'mesas', `mesa_${mesaId}`, 'pedidos'))
+  const ref = refMesa(localId, mesaId)
+  const pedidoRef = doc(colPedidos(localId, mesaId))
   await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(ref)
     const data = snap.data()
@@ -121,18 +130,15 @@ export const agregarPedidoExtra = async (mesaId, items, dispositivoId) => {
   })
 }
 
-export const suscribirPedidos = (mesaId, callback) => {
-  const q = query(
-    collection(db, 'mesas', `mesa_${mesaId}`, 'pedidos'),
-    orderBy('created_at', 'asc')
-  )
+export const suscribirPedidos = (localId, mesaId, callback) => {
+  const q = query(colPedidos(localId, mesaId), orderBy('created_at', 'asc'))
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   })
 }
 
-export const pedirCuenta = async (mesaId, metodoPago, propina, abonaCon = null) => {
-  await updateDoc(getMesaRef(mesaId), {
+export const pedirCuenta = async (localId, mesaId, metodoPago, propina, abonaCon = null) => {
+  await updateDoc(refMesa(localId, mesaId), {
     estado: 'esperando_cuenta',
     metodo_pago: metodoPago,
     propina: propina || 0,
@@ -141,14 +147,18 @@ export const pedirCuenta = async (mesaId, metodoPago, propina, abonaCon = null) 
 }
 
 // Liberar mesa completamente - borra subcolecciones
-export const liberarMesa = async (mesaId) => {
+export const liberarMesa = async (localId, mesaId) => {
   const batch = writeBatch(db)
-  const cols = ['pedidos', 'mensajes', 'llamadas']
+  const cols = [
+    colPedidos(localId, mesaId),
+    colMensajes(localId, mesaId),
+    colLlamadas(localId, mesaId),
+  ]
   for (const col of cols) {
-    const snap = await getDocs(collection(db, 'mesas', `mesa_${mesaId}`, col))
+    const snap = await getDocs(col)
     snap.docs.forEach(d => batch.delete(d.ref))
   }
-  batch.update(getMesaRef(mesaId), {
+  batch.update(refMesa(localId, mesaId), {
     estado: 'libre',
     clientes: [], dispositivos: [], carrito: [],
     carrito_bloqueado: false, total_acumulado: 0,
@@ -158,8 +168,8 @@ export const liberarMesa = async (mesaId) => {
   await batch.commit()
 }
 
-export const suscribirCarta = (callback) => {
-  return onSnapshot(collection(db, 'carta'), (snap) => {
+export const suscribirCarta = (localId, callback) => {
+  return onSnapshot(colCarta(localId), (snap) => {
     const items = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(i => i.disponible)
@@ -172,17 +182,14 @@ export const suscribirCarta = (callback) => {
   })
 }
 
-export const enviarMensaje = async (mesaId, texto, autor) => {
-  await addDoc(collection(db, 'mesas', `mesa_${mesaId}`, 'mensajes'), {
+export const enviarMensaje = async (localId, mesaId, texto, autor) => {
+  await addDoc(colMensajes(localId, mesaId), {
     texto, autor, created_at: serverTimestamp(),
   })
 }
 
-export const suscribirMensajes = (mesaId, callback) => {
-  const q = query(
-    collection(db, 'mesas', `mesa_${mesaId}`, 'mensajes'),
-    orderBy('created_at', 'asc')
-  )
+export const suscribirMensajes = (localId, mesaId, callback) => {
+  const q = query(colMensajes(localId, mesaId), orderBy('created_at', 'asc'))
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   })
