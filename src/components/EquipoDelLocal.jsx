@@ -73,10 +73,40 @@ export default function EquipoDelLocal({ localId, cantidadMesas = 10 }) {
     if (!nombre.trim()) return setError('Poné el nombre de la persona.')
     if (!email.includes('@')) return setError('Poné el email de Google de la persona.')
 
+    const mail = email.trim().toLowerCase()
+
+    // Si ya trabaja acá, invitar de nuevo no hace nada útil y confunde:
+    // el rol se cambia con el desplegable de su fila.
+    const yaEnElEquipo = equipo.find(p => (p.email || '').toLowerCase() === mail)
+    if (yaEnElEquipo) {
+      return setError(
+        `${yaEnElEquipo.nombre || mail} ya está en el equipo. Su rol se cambia desde su fila.`
+      )
+    }
+
+    // Volver a invitar al mismo email PISA la invitación anterior. Es una
+    // operación legítima —corregir un nombre mal escrito, cambiar el rol
+    // antes de que la persona entre—, pero antes se hacía en silencio y el
+    // cartel decía "listo" como si fuera un alta nueva. Ahora se avisa qué
+    // va a cambiar y se pide confirmación.
+    const pendiente = invitaciones.find(i => (i.email || '').toLowerCase() === mail)
+    if (pendiente) {
+      const cambiaRol = pendiente.rol !== rol
+      const detalle = cambiaRol
+        ? `Su rol pasa de ${ETIQUETA_ROL[pendiente.rol]} a ${ETIQUETA_ROL[rol]}.`
+        : 'Se actualizan los datos de la invitación.'
+      const seguir = window.confirm(
+        `${mail} ya tiene una invitación pendiente en este local.\n\n${detalle}\n\n¿Actualizarla?`
+      )
+      if (!seguir) return
+    }
+
     setEnviando(true)
     try {
       await invitarEmpleado({ localId, email, nombre, rol })
-      setAviso(`Listo. ${nombre.trim()} entra en ${email.trim().toLowerCase()} y queda dentro sola.`)
+      setAviso(pendiente
+        ? `Invitación de ${nombre.trim()} actualizada. Sigue pendiente de que entre con ${mail}.`
+        : `Listo. ${nombre.trim()} entra en ${mail} y queda dentro sola.`)
       setTimeout(() => setAviso(null), 8000)
       limpiar()
     } catch (err) {

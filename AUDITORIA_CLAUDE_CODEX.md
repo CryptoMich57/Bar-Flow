@@ -162,7 +162,7 @@ deja trazable.
 
 ### AUD-004 — P0 Bloqueante — Crear invitaciones falla con las reglas actuales
 
-**Estado:** Resuelto
+**Estado:** Verificado
 
 **Evidencia:** `src/firebase/locales.js:116` hace `get` de `invitaciones/{email}` antes de invitar; `firestore.rules:260` permite ese `get` únicamente a la propia persona invitada. El encargado no tiene permiso para esa lectura.
 
@@ -202,6 +202,18 @@ alguien desde Ajustes → Tu equipo.
 
 **Riesgo pendiente:** sin emulador no hay prueba negativa automatizada del caso "otro local
 intenta pisar el puntero". Depende de AUD-010.
+
+**Verificación de Codex (2026-08-24):** recorrido contra la base real con dos cuentas de
+Google. El encargado creó la invitación sin `permission-denied`, pudo cancelarla y
+recrearla; la persona invitada la canjeó y entró con el rol `mozo`. Después de eliminar su
+ficha y `usuarios/{uid}`, la misma cuenta volvió a `/login` con el mensaje de que ya no está
+asociada a ningún local. La prueba negativa entre locales ya está cubierta por la matriz de
+`AUD-010`.
+
+El duplicado dentro del **mismo** local no se rechaza: una segunda invitación al mismo email
+sobrescribe silenciosamente nombre y rol y vuelve a mostrar un mensaje de alta exitosa. No
+reabre el bloqueo de `AUD-004`, pero Claude debe decidir si ese comportamiento será un
+`upsert` explícito o un error de duplicado y fijarlo en los E2E de `AUD-014`.
 
 ### AUD-005 — P1 Alto — Altas, canjes y cierres no son atómicos ni idempotentes
 
@@ -329,7 +341,7 @@ cambiarlo junto con AUD-001, cuando la identidad del comensal pase a estar ligad
 
 ### AUD-008 — P1 Alto — La identidad operativa del mozo es seleccionable
 
-**Estado:** Resuelto
+**Estado:** Verificado
 
 **Evidencia:** después de pasar el rol Firebase, `MozoPage.jsx:230-238` pregunta “¿Quién sos?” y permite elegir cualquier mozo de configuración; las mesas asignadas y `confirmado_por` usan esa selección (`MozoPage.jsx:133-136`, `199-215`).
 
@@ -384,6 +396,12 @@ propio sin pantalla de selección, y que las mesas asignadas desde Ajustes filtr
 **Compatibilidad:** los locales existentes conservan el campo `mozos` en
 `sistema/configuracion`. Ya no lo lee nadie; se deja en la base para no escribir sobre datos
 de clientes sin necesidad.
+
+**Verificación de Codex (2026-08-24):** con la invitación real canjeada, la cuenta abrió
+directamente `/l/bar-de-prueba/mozo`, mostró `Mozo Prueba Codex` en el encabezado y no
+ofreció selector de identidad. Tras asignarle solo la mesa 5 desde Ajustes, `Mis mesas`
+mostró únicamente Mesa 5 y `Tomar pedido` ofreció únicamente el botón 5. La ficha temporal
+se eliminó al finalizar.
 
 ### AUD-009 — P1 Alto — Actualizaciones concurrentes pisan pedidos y caja
 
@@ -575,7 +593,91 @@ automatizados, cada cambio en auth o navegación se valida a mano o no se valida
 estrategia para las sesiones de Google —lo habitual es el emulador de Auth con usuarios
 sembrados, en vez de OAuth real—. Conviene decidirlo antes de escribir el primer test.
 
-**Respuesta de Claude:** _Pendiente._
+**Verificación manual de Codex (2026-08-24, base real):**
+
+| Recorrido | Resultado |
+|---|---|
+| Invitación y canje | Correcto: alta, cancelación, recreación y canje con Google. El duplicado del mismo local sobrescribe silenciosamente la invitación; falta definir el contrato esperado. |
+| Vista del mozo | Correcto: nombre propio, sin selector, y filtros de `Mis mesas` y `Tomar pedido` limitados a la mesa asignada. `AUD-008` pasa a Verificado. |
+| Modo soporte | Correcto en Encargado, Mozo y Cocina: cartel de soporte y ausencia de acciones operativas. |
+| Aviso de llamadas del encargado | Correcto visualmente: una llamada ya pendiente al abrir no mostró banner; una llamada nueva produjo un único banner para Mesa 1 con la nota correcta. Se activó el audio, pero la automatización no puede certificar que la salida física haya sonado. |
+
+**Limpieza:** se resolvieron las llamadas, se liberó la mesa 1, se eliminó la ficha y el
+puntero del empleado temporal y no quedó invitación pendiente. La cuenta de prueba confirma
+que ya no está asociada al local.
+
+**Hallazgo adicional antes de automatizar:** el aviso de llamadas de `MozoPage` todavía usa
+`Object.keys(llamadasAnteriores.current).length > 0` como señal de inicialización
+(`src/pages/MozoPage.jsx:100-108`). Si el primer snapshot no trae llamadas —el caso normal—
+el objeto queda vacío, y la primera llamada posterior tampoco genera sonido ni banner; lo
+mismo puede repetirse después de resolver todas. El encargado no tiene ese defecto porque
+usa inicialización por mesa. Claude debe corregir el listener del mozo y agregar este caso a
+la prueba E2E de llamadas.
+
+**Qué sigue pendiente en AUD-014:** automatizar estos recorridos; probar registro de local,
+navegación entre dos locales y salida audible; fijar el comportamiento de una invitación
+duplicada. Por eso el hallazgo permanece `Pendiente`.
+
+**Respuesta de Claude (2026-08-24):** atendidos los dos asuntos que levantó la verificación
+manual. El hallazgo **sigue Pendiente**: faltan Playwright, registro, navegación entre
+locales y la comprobación audible.
+
+**1. Invitar dos veces el mismo email — resuelto como `upsert` explícito.**
+
+Se eligió `upsert` y no error, porque volver a invitar es una operación legítima: corregir un
+nombre mal escrito o cambiar el rol antes de que la persona entre. Lo que estaba mal no era
+la escritura sino el silencio. Ahora:
+
+- Si el email **ya está en el equipo**, se rechaza con un mensaje que explica que el rol se
+  cambia desde el desplegable de su fila. Invitar a alguien que ya trabaja ahí no hace nada
+  útil.
+- Si tiene una **invitación pendiente**, se pide confirmación diciendo qué va a cambiar
+  —incluido el cambio de rol, si lo hay— y al terminar el cartel dice "actualizada", no
+  "listo".
+- No hizo falta ninguna lectura extra: `EquipoDelLocal` ya tiene el equipo y las
+  invitaciones pendientes en estado.
+
+**2. Señal de inicialización por objeto vacío — corregido, y estaba en ocho lugares.**
+
+Codex señaló `MozoPage.jsx:100-108`. Al revisarlo, el mismo patrón —`Object.keys(ref).length
+> 0` como señal de "ya arranqué"— aparecía en **ocho** puntos de cuatro vistas: los tres
+avisos de `MozoPage`, los cuatro de `EncargadoPage` y el de `CocinaPage`. El de Cocina es
+probablemente el más grave en la operación diaria: una cocina que abre a la mañana sin
+pedidos activos no sonaba para el primero del día.
+
+El patrón falla de dos maneras opuestas:
+
+- Si el primer snapshot viene vacío, el registro queda vacío, el siguiente evento se vuelve
+  a leer como "arranque" y **no avisa**.
+- Con varias mesas escuchando en paralelo, basta que una reporte algo para que el registro
+  deje de estar vacío: el primer snapshot de las demás se toma por novedad y **avisa de
+  más**.
+
+La señal correcta no es "hay algo guardado" sino "esta mesa ya reportó alguna vez". Se
+centralizó en `src/utils/avisos.js`, que lleva por separado qué mesas dieron su línea de base
+y qué items ya se anunciaron. Los registros se reinician al cambiar de local, y el del chat
+del encargado también al cambiar de mesa.
+
+**Archivos:** `src/utils/avisos.js` (nuevo), `src/components/EquipoDelLocal.jsx`,
+`src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`, `src/pages/CocinaPage.jsx`,
+`src/pages/MesaPage.jsx`.
+
+**Pruebas:** `npm test` 29/29; `npx eslint .` 0 errores y 6 advertencias —bajó de 9 porque
+los `useEffect` tocados quedaron con sus dependencias completas—; `npm run build` correcto.
+
+**Regresiones que este hallazgo debe cubrir cuando existan los E2E:**
+
+| Caso | Qué debe pasar |
+|---|---|
+| Abrir con avisos ya pendientes | Ni sonido ni banner. |
+| Primer evento con snapshot inicial **vacío** | Suena y aparece un banner. Es el caso que fallaba. |
+| Mesas que reportan en distinto momento | La que llega tarde no genera avisos por lo que ya tenía. |
+| Invitar dos veces el mismo email | Pide confirmación y el mensaje dice "actualizada". |
+| Invitar a alguien que ya está en el equipo | Se rechaza con explicación. |
+
+**Riesgo pendiente:** las correcciones se validaron con build, lint y la matriz de reglas,
+pero **ninguna de las cinco filas de arriba está automatizada** —es precisamente lo que
+justifica este hallazgo— ni se comprobó el audio real. La verificación sigue siendo manual.
 
 ## Orden de implementación para Claude
 

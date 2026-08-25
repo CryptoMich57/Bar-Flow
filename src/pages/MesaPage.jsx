@@ -8,6 +8,7 @@ import {
 import { addDoc, serverTimestamp } from 'firebase/firestore'
 import { colLlamadas } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
+import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import { getCopyright, getTextos } from '../config'
 import { cargarConfiguracion } from '../firebase/configuracion'
 import styles from './MesaPage.module.css'
@@ -87,7 +88,7 @@ export default function MesaPage() {
   const [notaMozo, setNotaMozo]     = useState('')
   const [showLlamarMozo, setShowLlamarMozo] = useState(false)
   const mensajesRef = useRef(null)
-  const mensajesAnteriores = useRef({})
+  const avisosMensajes = useRef(crearRegistroDeAvisos())
 
   // Si hay sesión guardada, registrar dispositivo en firebase al montar
   useEffect(() => {
@@ -124,10 +125,16 @@ export default function MesaPage() {
   useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
     const unsub = suscribirMensajes(localId, mesaId, (msgs) => {
-      const hayNuevo = msgs.some(m => !mensajesAnteriores.current[m.id] && m.autor !== nombre)
-      if (hayNuevo && Object.keys(mensajesAnteriores.current).length > 0) sonidoMensaje()
-      const map = {}; msgs.forEach(m => map[m.id] = true)
-      mensajesAnteriores.current = map
+      // El primer snapshot es la linea de base: si el comensal abre el chat
+      // con mensajes ya escritos, no tiene que sonar. Antes se usaba "el
+      // registro esta vacio", asi que en una mesa sin mensajes previos el
+      // primero del encargado pasaba en silencio.
+      const hayNuevo = novedades(
+        avisosMensajes.current,
+        msgs.map(m => ({ ...m, mesa: mesaId })),
+        [mesaId],
+      ).some(m => m.autor !== nombre)
+      if (hayNuevo) sonidoMensaje()
       setMensajes(msgs)
       setTimeout(() => mensajesRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 100)
     })

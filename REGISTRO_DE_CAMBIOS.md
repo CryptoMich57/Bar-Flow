@@ -17,6 +17,52 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Correcciones de la verificación manual (AUD-014)
+
+- **IDs:** `AUD-014` (sigue Pendiente). Referencia: `AUD-004` y `AUD-008` quedaron Verificados
+  por Codex en la entrada anterior.
+- **Archivos:** `src/utils/avisos.js` (nuevo), `src/components/EquipoDelLocal.jsx`,
+  `src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`, `src/pages/CocinaPage.jsx`,
+  `src/pages/MesaPage.jsx`.
+- **Cambio:** los dos asuntos que levantó la verificación manual.
+
+  **Invitación duplicada:** se resolvió como `upsert` explícito y no como error, porque
+  volver a invitar es legítimo —corregir un nombre, cambiar el rol antes de que la persona
+  entre—. Lo que estaba mal era el silencio. Ahora pide confirmación diciendo qué cambia, el
+  cartel final dice "actualizada", y si el email ya pertenece al equipo se rechaza
+  explicando que el rol se cambia desde su fila.
+
+  **Señal de inicialización:** Codex señaló un punto en `MozoPage`; el mismo patrón estaba en
+  **ocho** lugares de cuatro vistas. El de `CocinaPage` es el más grave en la operación: una
+  cocina que abre a la mañana sin pedidos activos no sonaba para el primero del día. Se
+  centralizó la lógica en `src/utils/avisos.js`, que distingue "esta mesa ya reportó" de "hay
+  algo guardado" —la confusión que causaba tanto los avisos faltantes como los de más— y se
+  reinicia al cambiar de local.
+- **Validación:** `npm test` 29/29; `npx eslint .` 0 errores y 6 advertencias (bajó de 9);
+  `npm run build` correcto.
+- **Pendiente / riesgos:** ninguna de las cinco regresiones listadas en `AUD-014` está
+  automatizada, ni se comprobó el audio real. Siguen faltando Playwright, el recorrido de
+  registro y la navegación entre locales. `AUD-014` **no** se marca resuelto.
+
+
+### 2026-08-24 — Codex — Recorridos manuales reales de AUD-014
+
+- **IDs:** `AUD-004` (Verificado), `AUD-008` (Verificado), `AUD-014` (Pendiente).
+- **Archivos:** `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`.
+- **Cambio:** se ejecutaron con sesiones reales de Google los recorridos de invitación y
+  canje, identidad y mesas del mozo, soporte de solo lectura y avisos de llamadas del
+  encargado. No se modificó código funcional.
+- **Validación:** la invitación se creó, canceló, recreó y canjeó; el mozo mostró su nombre
+  sin selector y quedó limitado a la mesa 5; Encargado, Mozo y Cocina ocultaron acciones en
+  soporte; una llamada previa no mostró banner y una nueva mostró uno solo para la mesa
+  correcta. La ficha temporal fue eliminada y la mesa 1 quedó libre.
+- **Hallazgos:** invitar dos veces el mismo email dentro del local sobrescribe la invitación
+  sin avisar. Además, `MozoPage` usa un objeto vacío como señal de inicialización y puede no
+  avisar la primera llamada cuando el snapshot inicial estaba vacío. Ambos casos quedan
+  anotados en `AUD-014` para decisión, corrección y cobertura E2E.
+- **Pendiente / riesgos:** Playwright, registro, navegación entre locales y comprobación de
+  audio físico. `AUD-014` sigue Pendiente.
+
 ### 2026-08-24 — Claude — AUD-014 abierto; AUD-010 cerrado como Verificado
 
 - **IDs:** `AUD-010` (Verificado por Codex sobre `836b029`), `AUD-014` (Pendiente, nuevo).

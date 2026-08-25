@@ -5,6 +5,7 @@ import { suscribirConfiguracion } from '../firebase/configuracion'
 import { colPedidos, refPedido, colHistorial } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
+import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import styles from './CocinaPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
@@ -32,7 +33,7 @@ export default function CocinaPage() {
   const [historialDia, setHistorialDia]     = useState([])
   const [tab, setTab]                 = useState('activos')
   const [audioOn, setAudioOn]         = useState(false)
-  const pedidosAnteriores = useRef({})
+  const avisosPedidos = useRef(crearRegistroDeAvisos())
   const pedidosNuevos = useRef({})
   const { agregar: notif, NotifBanner } = useNotificaciones()
 
@@ -90,20 +91,24 @@ export default function CocinaPage() {
   // ── Detectar pedidos nuevos — sonido + notificación ─────────────────────────
   useEffect(() => {
     const todos = Object.entries(pedidosPorMesa)
-      .flatMap(([mesaId, pedidos]) => pedidos.map(p => ({ ...p, mesaId })))
-    const anteriores = pedidosAnteriores.current
-    const nuevos = todos.filter(p => !anteriores[p.id])
-    if (nuevos.length > 0 && Object.keys(anteriores).length > 0) {
+      .flatMap(([mesaId, pedidos]) => pedidos.map(p => ({ ...p, mesa: mesaId, mesaId })))
+
+    // Ver src/utils/avisos.js. Antes la senal de arranque era "el registro
+    // esta vacio", asi que una cocina que abria sin pedidos activos —lo
+    // habitual a la manana— no sonaba para el primero del dia.
+    const nuevos = novedades(
+      avisosPedidos.current,
+      todos,
+      Object.keys(pedidosPorMesa),
+    )
+    if (nuevos.length > 0) {
       sonidoNuevoPedido()
       nuevos.forEach(p => {
         notif(`🆕 Nuevo pedido — Mesa ${p.mesaId}`, 'gold', 4000)
         pedidosNuevos.current[p.id] = Date.now()
       })
     }
-    const nuevo = {}
-    todos.forEach(p => nuevo[p.id] = true)
-    pedidosAnteriores.current = nuevo
-  }, [pedidosPorMesa])
+  }, [pedidosPorMesa, notif])
 
   // ── Cambiar estado ítem ──────────────────────────────────────────────────────
   const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {

@@ -14,6 +14,7 @@ import {
 import { useLocal } from '../utils/LocalContext'
 import EquipoDelLocal from '../components/EquipoDelLocal'
 import { useAccesoActual } from '../utils/AccesoContext'
+import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '../firebase/configuracion'
 import styles from './EncargadoPage.module.css'
@@ -58,11 +59,13 @@ export default function EncargadoPage() {
   const navigate = useNavigate()
   const [audioOn, setAudioOn] = useState(false)
   const { agregar: notif, NotifBanner } = useNotificaciones()
-  const pedidosAnteriores = useRef({})
-  const llamadasAvisadas = useRef({})
-  const mesasConLlamadasListas = useRef(new Set())
-  const cuentasAnteriores = useRef({})
-  const mensajesAnteriores = useRef({})
+  // Ver src/utils/avisos.js. La linea de base va por mesa: usar "el
+  // registro esta vacio" hacia que un local que abria sin pedidos no
+  // avisara el primero, y que las mesas que reportaban tarde avisaran de mas.
+  const avisosPedidos  = useRef(crearRegistroDeAvisos())
+  const avisosLlamadas = useRef(crearRegistroDeAvisos())
+  const avisosCuentas  = useRef(crearRegistroDeAvisos())
+  const avisosMensajes = useRef(crearRegistroDeAvisos())
 
   // ── Cargar configuración desde Firestore ────────────────────────────────────
   useEffect(() => {
@@ -90,18 +93,27 @@ export default function EncargadoPage() {
   }, [localId, cantidadMesas])
 
   useEffect(() => {
+    // Otra mesa, otro chat: su primer snapshot vuelve a ser linea de base.
+    avisosMensajes.current = crearRegistroDeAvisos()
+  }, [localId, mesaSeleccionada])
+
+  useEffect(() => {
     if (!mesaSeleccionada) return
     const u1 = suscribirPedidos(localId, mesaSeleccionada, (nuevos) => {
       setPedidos(nuevos)
     })
     const u2 = suscribirMensajes(localId, mesaSeleccionada, (nuevos) => {
-      const nuevosMsg = nuevos.filter(m => !mensajesAnteriores.current[m.id])
-      if (nuevosMsg.length > 0 && Object.keys(mensajesAnteriores.current).length > 0) {
+      // El chat escucha una sola mesa, asi que la linea de base es su
+      // primer snapshot: se registra sin sonar y a partir de ahi si.
+      const nuevosMsg = novedades(
+        avisosMensajes.current,
+        nuevos.map(m => ({ ...m, mesa: mesaSeleccionada })),
+        [mesaSeleccionada],
+      )
+      if (nuevosMsg.length > 0) {
         sonidoMensaje()
         notif(`💬 Mensaje — Mesa ${mesaSeleccionada}`, 'gold', 3000)
       }
-      const map = {}; nuevos.forEach(m => map[m.id] = true)
-      mensajesAnteriores.current = map
       setMensajes(nuevos)
     })
     const u3 = onSnapshot(
@@ -138,16 +150,15 @@ export default function EncargadoPage() {
         orderBy('created_at', 'asc')
       )
       return onSnapshot(q, snap => {
-        snap.docs.forEach(d => {
-          const pedidoId = d.id
-          if (!pedidosAnteriores.current[pedidoId]) {
-            if (Object.keys(pedidosAnteriores.current).length > 0) {
-              sonidoNuevoPedido()
-              notif(`🆕 Nuevo pedido — Mesa ${num}`, 'gold', 4000)
-            }
-            pedidosAnteriores.current[pedidoId] = true
-          }
-        })
+        const nuevos = novedades(
+          avisosPedidos.current,
+          snap.docs.map(d => ({ id: d.id, mesa: num })),
+          [num],
+        )
+        if (nuevos.length > 0) {
+          sonidoNuevoPedido()
+          nuevos.forEach(() => notif(`🆕 Nuevo pedido — Mesa ${num}`, 'gold', 4000))
+        }
         // Cola de barra: items que prepara el encargado (cafeteria, licuados)
         const barra = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -173,31 +184,20 @@ export default function EncargadoPage() {
     // registrara algo para que el primer snapshot de la mesa 2 sonara por
     // llamadas que ya estaban ahi. Por eso la inicializacion se lleva POR
     // MESA, y ambos registros se reinician al cambiar de local.
-    llamadasAvisadas.current = {}
-    mesasConLlamadasListas.current = new Set()
+    avisosLlamadas.current = crearRegistroDeAvisos()
 
     const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = numsMesas.map(num =>
       onSnapshot(colLlamadas(localId, num), snap => {
         const pendientes = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
+          .map(d => ({ id: d.id, ...d.data(), mesa: num }))
           .filter(l => l.estado === 'pendiente')
 
-        // El primer snapshot de ESTA mesa trae lo que ya estaba: se registra
-        // sin sonar, para no disparar una salva de alertas al abrir la pantalla.
-        const yaArranco = mesasConLlamadasListas.current.has(num)
-
-        pendientes.forEach(l => {
-          if (!llamadasAvisadas.current[l.id]) {
-            if (yaArranco) {
-              sonidoLlamadaMozo()
-              notif(`✋ Mesa ${num}: ${l.nota || 'te llama'}`, 'Yellow', 5000)
-            }
-            llamadasAvisadas.current[l.id] = true
-          }
+        const nuevas = novedades(avisosLlamadas.current, pendientes, [num])
+        nuevas.forEach(l => {
+          sonidoLlamadaMozo()
+          notif(`✋ Mesa ${num}: ${l.nota || 'te llama'}`, 'Yellow', 5000)
         })
-
-        mesasConLlamadasListas.current.add(num)
       })
     )
     return () => unsubs.forEach(u => u())
@@ -208,13 +208,16 @@ export default function EncargadoPage() {
     const cuentasActuales = {}
     Object.values(mesas).filter(m => m?.estado === 'esperando_cuenta')
       .forEach(m => { cuentasActuales[m.mesa_numero] = m })
-    const nuevas = Object.values(cuentasActuales).filter(m => !cuentasAnteriores.current[m.mesa_numero])
-    if (nuevas.length > 0 && Object.keys(cuentasAnteriores.current).length > 0) {
+    const nuevas = novedades(
+      avisosCuentas.current,
+      Object.values(cuentasActuales).map(m => ({ ...m, id: `cuenta_${m.mesa_numero}`, mesa: m.mesa_numero })),
+      Object.keys(mesas),
+    )
+    if (nuevas.length > 0) {
       sonidoCuenta()
       nuevas.forEach(m => notif(`💳 Mesa ${m.mesa_numero} pide la cuenta — ${m.metodo_pago === 'tarjeta' ? 'llevar posnet' : m.metodo_pago === 'transferencia' ? 'confirmar transferencia' : 'llevar ticket'}`, 'Red', 6000))
     }
-    cuentasAnteriores.current = cuentasActuales
-  }, [mesas])
+  }, [mesas, notif])
 
   // ── Historial ───────────────────────────────────────────────────────────────
   const cargarHistorial = async (desde = null, hasta = null) => {

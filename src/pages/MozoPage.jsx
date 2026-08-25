@@ -6,6 +6,7 @@ import { suscribirCarta, agregarPedidoExtra } from '../firebase/mesa'
 import { refMesa, colPedidos, refPedido, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
+import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import styles from './MozoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
@@ -47,9 +48,12 @@ export default function MozoPage() {
     })
     return unsub
   }, [localId])
-  const listosAnteriores = useRef({})
-  const llamadasAnteriores = useRef({})
-  const cuentasAnteriores = useRef({})
+  // Ver src/utils/avisos.js: la linea de base se lleva por mesa, no por
+  // "el registro esta vacio". Con lo anterior, una mesa que arrancaba sin
+  // llamadas pendientes no avisaba nunca la primera.
+  const avisosListos   = useRef(crearRegistroDeAvisos())
+  const avisosLlamadas = useRef(crearRegistroDeAvisos())
+  const avisosCuentas  = useRef(crearRegistroDeAvisos())
 
   // ── Suscripciones ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -89,36 +93,53 @@ export default function MozoPage() {
     misMesas.flatMap(n => (pedidosPorMesa[n]||[]).map(p => ({ ...p, mesaId: n })))
       .filter(p => p.estado === 'listo')
       .forEach(p => { listosActuales[p.id] = p })
-    const listosNuevos = Object.values(listosActuales).filter(p => !listosAnteriores.current[p.id])
-    if (listosNuevos.length > 0 && Object.keys(listosAnteriores.current).length > 0) {
+    const listosNuevos = novedades(
+      avisosListos.current,
+      Object.values(listosActuales).map(p => ({ id: p.id, mesa: p.mesaId, ...p })),
+      misMesas.filter(n => pedidosPorMesa[n] !== undefined),
+    )
+    if (listosNuevos.length > 0) {
       sonidoPedidoListo()
       listosNuevos.forEach(p => notif(`✅ Pedido listo — Mesa ${p.mesaId}`, 'Green', 4000))
     }
-    listosAnteriores.current = listosActuales
 
     // Llamadas nuevas
     const llamadasActuales = {}
     misMesas.flatMap(n => (llamadasPorMesa[n]||[]).map(l => ({ ...l, mesaId: n })))
       .forEach(l => { llamadasActuales[l.id] = l })
-    const llamadasNuevas = Object.values(llamadasActuales).filter(l => !llamadasAnteriores.current[l.id])
-    if (llamadasNuevas.length > 0 && Object.keys(llamadasAnteriores.current).length > 0) {
+    const llamadasNuevas = novedades(
+      avisosLlamadas.current,
+      Object.values(llamadasActuales).map(l => ({ ...l, mesa: l.mesaId })),
+      misMesas.filter(n => llamadasPorMesa[n] !== undefined),
+    )
+    if (llamadasNuevas.length > 0) {
       sonidoLlamadaMozo()
       llamadasNuevas.forEach(l => notif(`✋ Mesa ${l.mesaId}: ${l.nota || 'te llama'}`, 'Yellow', 5000))
     }
-    llamadasAnteriores.current = llamadasActuales
 
     // Cuentas nuevas
     const cuentasActuales = {}
     misMesas.map(n => mesas[n]).filter(m => m?.estado === 'esperando_cuenta')
       .forEach(m => { cuentasActuales[m.mesa_numero] = m })
-    const cuentasNuevas = Object.values(cuentasActuales).filter(m => !cuentasAnteriores.current[m.mesa_numero])
-    if (cuentasNuevas.length > 0 && Object.keys(cuentasAnteriores.current).length > 0) {
+    const cuentasNuevas = novedades(
+      avisosCuentas.current,
+      Object.values(cuentasActuales).map(m => ({ ...m, id: `cuenta_${m.mesa_numero}`, mesa: m.mesa_numero })),
+      misMesas.filter(n => mesas[n] !== undefined),
+    )
+    if (cuentasNuevas.length > 0) {
       sonidoCuenta()
       cuentasNuevas.forEach(m => notif(`💳 Mesa ${m.mesa_numero} pide la cuenta`, 'Red', 6000))
     }
-    cuentasAnteriores.current = cuentasActuales
 
-  }, [pedidosPorMesa, llamadasPorMesa, mesas])
+  }, [pedidosPorMesa, llamadasPorMesa, mesas, misMesas, notif])
+
+  // Al cambiar de local se empieza de cero: lo del bar anterior no es
+  // novedad acá, y sus ids no tienen por qué seguir ocupando memoria.
+  useEffect(() => {
+    avisosListos.current   = crearRegistroDeAvisos()
+    avisosLlamadas.current = crearRegistroDeAvisos()
+    avisosCuentas.current  = crearRegistroDeAvisos()
+  }, [localId])
 
   // ── Mis mesas (las asignadas al mozo activo) ──────────────────────────────────
   // Cuanta gente hay sentada en una mesa. El mozo lo necesita para saber
