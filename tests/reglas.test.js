@@ -58,6 +58,20 @@ const conGoogle = (uid, email, verificado = true) =>
 
 const db = (ctx) => ctx.firestore()
 
+// Una mesa recien abierta tiene que nacer en cero: sin total, sin carrito,
+// sin metodo de pago. Las reglas lo exigen para que nadie se siente con una
+// cuenta ya puesta a mano.
+const MESA_RECIEN_ABIERTA = {
+  estado: 'ocupada',
+  personas: 2,
+  clientes: ['Ana'],
+  carrito: [],
+  carrito_bloqueado: false,
+  total_acumulado: 0,
+  propina: 0,
+  metodo_pago: null,
+}
+
 // ── Rutas ───────────────────────────────────────────────────
 const local      = (d, id) => doc(d, 'locales', id)
 const carta      = (d, id) => collection(d, 'locales', id, 'carta')
@@ -127,7 +141,7 @@ describe('AUD-001 / AUD-003 — quien es comensal', () => {
   it('una sesion anonima puede abrir y escribir una mesa', async () => {
     const d = db(comensal())
     await assertSucceeds(getDoc(mesa(d, 'bar-a', 1)))
-    await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada', personas: 2 }))
+    await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), MESA_RECIEN_ABIERTA))
   })
 
   it('una cuenta de Google sin ficha en el local NO es comensal', async () => {
@@ -156,9 +170,17 @@ describe('AUD-001 — el comensal solo opera SU mesa', () => {
 
   it('con capacidad para la mesa 1 NO puede tocar la mesa 2', async () => {
     const d = db(comensalDe('bar-a', 1))
-    await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
+    await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), MESA_RECIEN_ABIERTA))
     await assertFails(getDoc(mesa(d, 'bar-a', 2)))
-    await assertFails(setDoc(mesa(d, 'bar-a', 2), { estado: 'ocupada' }))
+    await assertFails(setDoc(mesa(d, 'bar-a', 2), MESA_RECIEN_ABIERTA))
+  })
+
+  it('no puede sentarse con una cuenta ya puesta', async () => {
+    // Lo que impide mesaNaceLimpia(): antes el comensal podia crear su mesa
+    // con total_acumulado o carrito_bloqueado a gusto.
+    const d = db(comensalDe('bar-a', 1))
+    await assertFails(setDoc(mesa(d, 'bar-a', 1), { ...MESA_RECIEN_ABIERTA, total_acumulado: 99999 }))
+    await assertFails(setDoc(mesa(d, 'bar-a', 1), { ...MESA_RECIEN_ABIERTA, propina: 5000 }))
   })
 
   it('tampoco los pedidos, mensajes ni llamadas de otra mesa', async () => {

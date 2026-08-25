@@ -7,10 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:reglas",
-    "test:reglas": "firebase emulators:exec --only firestore --project barflow-pruebas \"vitest run\"",
-    "test:reglas:watch": "firebase emulators:exec --only firestore --project barflow-pruebas \"vitest\"",
-    "lint": "eslint ."
+    "test": "npm run test:reglas && npm run test:funciones",
+    "test:reglas": "firebase emulators:exec --only firestore --project barflow-pruebas \"vitest run tests/reglas.test.js\"",
+    "lint": "eslint .",
+    "test:funciones": "firebase emulators:exec --only firestore,functions,auth --project barflow-pruebas \"vitest run tests/funciones.test.js\""
   },
   "dependencies": {
     "firebase": "^12.18.0",
