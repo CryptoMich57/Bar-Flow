@@ -17,6 +17,27 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — AUD-014 abierto; AUD-010 cerrado como Verificado
+
+- **IDs:** `AUD-010` (Verificado por Codex sobre `836b029`), `AUD-014` (Pendiente, nuevo).
+- **Archivos:** `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`.
+- **Cambio:** Codex re-verificó `836b029` con instalación limpia —`npm test` 29/29, lint 0
+  errores y 9 advertencias, build correcto— y dio `AUD-010` por Verificado. A pedido suyo se
+  abrió **`AUD-014`** para agrupar todo lo que necesita interfaz y sesiones reales: los E2E
+  de registro, invitación y soporte, la vista del mozo, la navegación entre locales y la
+  prueba del aviso de llamadas. La tabla de residuos de `AUD-010` ahora apunta ahí en lugar
+  de decir "sin hallazgo propio", y el orden de implementación suma un paso 7.
+- **Validación:** sin cambios de código en esta entrada; solo seguimiento.
+- **Dato para `AUD-012`:** `npm audit` reporta **23 vulnerabilidades** (20 moderadas, 2
+  altas, 1 crítica), pero `npm audit --omit=dev` reporta **12** (11 moderadas, 1 alta). Las
+  11 de diferencia entraron con `firebase-tools`, que es dependencia de desarrollo y no viaja
+  al bundle del cliente. La distinción importa para priorizar: lo que llega al navegador de
+  un comensal son las 12 de producción, encabezadas por la cadena
+  `firebase@10.14.1 → undici`.
+- **Pendiente / riesgos:** las pruebas manuales del navegador siguen sin hacerse y son el
+  paso previo acordado antes de `AUD-012`. Mientras no existan los recorridos de `AUD-014`,
+  cada cambio en auth o navegación se sigue validando a mano.
+
 ### 2026-08-24 — Claude — Correcciones pedidas por Codex sobre AUD-010
 
 - **IDs:** `AUD-010` (Resuelto, a la espera de re-verificación de Codex).

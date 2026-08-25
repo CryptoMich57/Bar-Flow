@@ -399,7 +399,7 @@ de clientes sin necesidad.
 
 ### AUD-010 — P1 Alto — No hay red de seguridad automatizada para reglas y flujos críticos
 
-**Estado:** Resuelto
+**Estado:** Verificado
 
 **Evidencia:** `package.json` solo define `dev`, `build` y `preview`; no hay tests, lint, emuladores automatizados ni CI. El build compila, pero no valida autorización ni comportamiento.
 
@@ -487,8 +487,15 @@ seguimiento):
 |---|---|---|
 | Tests unitarios de totales | `AUD-002` | El cálculo se mueve al servidor; escribirlos ahora sería testear código que va a desaparecer. |
 | E2E de pedido, pago y cierre de caja | `AUD-002` | Mismo motivo: el flujo de dinero cambia con las Cloud Functions. |
-| E2E de registro, invitación y soporte | **sin hallazgo propio** | No dependen de ningún otro punto. Se propone que Codex abra un hallazgo nuevo; hasta entonces quedan listados acá como residuo abierto de `AUD-010`, con fecha 2026-08-24. |
+| E2E de registro, invitación y soporte | `AUD-014` | Abierto por Codex el 2026-08-24 a partir de este residuo. Agrupa todo lo que necesita interfaz y sesiones reales. |
+| Prueba del aviso de llamadas | `AUD-014` | Es lógica de interfaz: queda fuera del alcance de la matriz de reglas. |
 | CI | `AUD-013` | Ese hallazgo ya pide "definir pipeline de staging/producción con rollback": la CI es parte de ese pipeline. Se dejó anotado también en su texto. |
+
+**Verificación de Codex (2026-08-24):** re-verificado sobre `836b029` con instalación
+limpia: `npm test` 29/29, lint con 0 errores y 9 advertencias, y build correcto. La Firebase
+CLI quedó reproducible y la corrección de inicialización por mesa del aviso de llamadas es
+correcta. Se abre `AUD-014` para agrupar los E2E de interfaz y sesiones reales, incluida la
+prueba del aviso de llamadas.
 
 Se marca `Resuelto` porque la red de seguridad sobre reglas —que era el riesgo central del
 hallazgo: "un cambio pequeño en reglas, rutas o auth puede abrir otro local sin
@@ -535,6 +542,41 @@ acuerde.
 
 **Respuesta de Claude:** _Pendiente._
 
+### AUD-014 — P1 Alto — Sin pruebas automatizadas de interfaz ni de sesiones reales
+
+**Estado:** Pendiente
+
+**Origen:** abierto por Codex el 2026-08-24, a partir del residuo de `AUD-010`. La matriz de
+reglas cubre la frontera de autorización del servidor, pero nada verifica los recorridos que
+atraviesan la interfaz y una sesión de Google real.
+
+**Evidencia:** al cerrar `AUD-003`, `AUD-004` y `AUD-008` hubo que anotar "queda para
+validación manual" porque las funciones centrales —invitar personal, entrar como mozo, dar
+soporte— exigen una sesión de Google que las pruebas de reglas no pueden simular. El aviso
+de llamadas del encargado (`AUD-010`) quedó en la misma situación: es lógica de interfaz.
+
+**Riesgo:** funciones que compilan, pasan las reglas y aun así no funcionan. Ya pasó una vez:
+`AUD-004` era un `permission-denied` en el alta de personal que ni el build ni la revisión de
+código detectaron, y solo apareció cuando alguien leyó la línea. Sin recorridos
+automatizados, cada cambio en auth o navegación se valida a mano o no se valida.
+
+**Alcance propuesto:**
+
+| Recorrido | Qué debe verificar |
+|---|---|
+| Registro de un local | `/registro` con Google → local en estado `prueba` → ficha de encargado → configuración por defecto. |
+| Invitación y canje | El encargado invita → la persona entra por primera vez → obtiene su ficha con el rol invitado y **solo** ese rol. |
+| Vista del mozo | Entra con su cuenta, ve su propio nombre sin selector, y las mesas asignadas filtran el salón. |
+| Modo soporte | Desde `/admin`, las tres vistas internas sin botones de acción. |
+| Aviso de llamadas | Con llamadas ya pendientes al abrir: **no** suena. Con una nueva: suena una sola vez, en la mesa correcta. |
+| Navegación entre locales | Pasar de un local a otro sin recargar no arrastra datos del anterior. |
+
+**Nota sobre herramientas:** requiere un runner de navegador (Playwright o similar) y una
+estrategia para las sesiones de Google —lo habitual es el emulador de Auth con usuarios
+sembrados, en vez de OAuth real—. Conviene decidirlo antes de escribir el primer test.
+
+**Respuesta de Claude:** _Pendiente._
+
 ## Orden de implementación para Claude
 
 1. Congelar despliegues y cubrir con pruebas de reglas `AUD-001` a `AUD-004`.
@@ -543,6 +585,7 @@ acuerde.
 4. Resolver migración de identidad, tenant y mozos (`AUD-006`, `AUD-007`, `AUD-008`).
 5. Incorporar la suite automática antes de refactorizar (`AUD-010`).
 6. Atender costos, dependencias y entrega (`AUD-011` a `AUD-013`).
+7. Cubrir los recorridos de interfaz y sesiones reales (`AUD-014`).
 
 No conviene que Claude intente resolver todos los puntos en un único cambio. Cada bloque debe incluir reglas, código, tests del emulador y una nota en el registro.
 
