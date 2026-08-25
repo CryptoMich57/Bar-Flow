@@ -533,7 +533,7 @@ detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelt
 
 ### AUD-012 — P2 Medio — Dependencias con vulnerabilidades conocidas
 
-**Estado:** Pendiente
+**Estado:** Resuelto
 
 **Evidencia:** `npm audit --omit=dev` reportó 12 vulnerabilidades: 1 alta y 11 moderadas. La cadena principal incluye `firebase@10.14.1` → `undici@6.19.7`; `react-router-dom@6.30.6` también está señalado.
 
@@ -541,7 +541,54 @@ detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelt
 
 **Solución requerida:** actualizar Firebase a una versión corregida y evaluar la migración soportada de React Router; ejecutar build, E2E y `npm audit` nuevamente. No usar `--force` sin revisar cambios mayores.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** **Producción quedó en 0 vulnerabilidades** (eran 12).
+
+**Antes de tocar nada, una distinción que cambia la prioridad.** De las 23 que reportaba
+`npm audit`, 9 de las 12 de producción venían por la cadena `firebase@10.14.1 → undici`.
+Pero `undici` **no llega al navegador**: sólo está en el build de Node
+(`@firebase/firestore/dist/index.node.cjs.js`), y `grep -c undici dist/assets/*.js` devuelve
+0. Es decir, esas 9 afectaban a `seed.js` —que corre en Node— y no al celular del comensal.
+Las que sí viajaban al bundle eran las 2 de `react-router`: *open redirect* por backslash en
+`<Link>`/`useNavigate`, y *arbitrary constructor injection* por deserialización.
+
+**Lo hecho:**
+
+| Paquete | De | A | Motivo |
+|---|---|---|---|
+| `firebase` | 10.14.1 | 12.18.0 | Corta la cadena `undici`. |
+| `react-router-dom` | 6.30.6 | 7.18.2 | Las dos únicas que llegaban al navegador. |
+| `@firebase/rules-unit-testing` | 3.0.4 | 5.0.2 | Su `peerDependency` es `firebase@^12`; se había fijado en la 3 justamente para no adelantarse a este upgrade. |
+
+Sobre React Router: el salto es de *major*, pero la app usa sólo la API declarativa
+—`BrowserRouter`, `Routes`, `Route`, `Link`, `Navigate`, `useNavigate`, `useParams`—, toda
+soportada sin cambios en la v7. Se verificó en ejecución, no sólo con el build: el catch-all
+redirige a `/login`, las rutas con parámetro resuelven el local y la mesa, la navegación del
+lado del cliente entre rutas funciona y la consola queda sin errores.
+
+**Regresión introducida, que hay que decir:** el bundle pasó de **741 kB a 985 kB**
+(gzip 192 → 261 kB). Se midió a qué se debe en vez de suponerlo: con `react-router@6` +
+`firebase@12` el bundle da 968 kB, así que **el router aporta ~17 kB y firebase ~227 kB**.
+Es el precio del parche de seguridad. `AUD-013` ya pedía separar en chunks y cargar por
+ruta; ahora eso pasó de conveniente a necesario, y quedó anotado ahí.
+
+**Lo que queda, y por qué se deja:** siguen 12 vulnerabilidades **sólo de desarrollo** —1
+crítica en `vitest`, 1 alta en `vite`, y la cadena de `firebase-tools`—. No se subieron
+`vite` (5 → 8) ni `vitest` (2 → 4) porque son dos saltos de *major* que tocan el build y el
+plugin de PWA, con beneficio que no alcanza al usuario: la crítica de `vitest` exige levantar
+su UI (`vitest --ui`), y `npm test` corre `vitest run`, que no abre servidor; la de `vite`
+afecta al servidor de desarrollo en localhost. Cambiar la herramienta que compila y prueba la
+app merece ser su propio bloque con verificación, no un arrastre de este.
+
+**Archivos:** `package.json`, `package-lock.json`.
+
+**Pruebas:** `npm audit --omit=dev` → **0**; `npm audit` → 12, todas de desarrollo;
+`npm test` 29/29; `npx eslint .` 0 errores; `npm run build` correcto con el service worker
+generado; verificación de navegación en el navegador.
+
+**Riesgo pendiente:** la app se ejerció como comensal después del upgrade, pero **no** con
+sesiones de personal —eso depende de `AUD-014`—. Un cambio de *major* en el router justifica
+repetir los recorridos manuales de encargado, mozo y cocina antes de dar esto por cerrado en
+producción.
 
 ### AUD-013 — P2 Medio — Entrega, PWA, mantenibilidad y accesibilidad incompletas
 
@@ -557,6 +604,12 @@ acuerde.
 **Riesgo:** no hay destino productivo verificable, pestañas antiguas pueden convivir con cambios incompatibles de auth/reglas, la carga inicial es mayor y cuesta probar/mantener las vistas; accesibilidad por teclado/lector de pantalla es débil.
 
 **Solución requerida:** definir pipeline de staging/producción con rollback y versión mínima; inicializar Hosting cuando se autorice; separar páginas en módulos/hooks y lazy-load por ruta; ejecutar una revisión de accesibilidad (labels, foco, diálogos, contraste y teclado).
+
+**Nota (2026-08-24):** el upgrade de `AUD-012` subió el bundle principal de **741 kB a
+985 kB** (gzip 192 → 261 kB), de los cuales ~227 kB son de `firebase@12`. Lo que este
+hallazgo pedía como mejora —separar en chunks y hacer *lazy-load* por ruta— pasó a ser
+necesario: la pantalla del comensal descarga hoy el código del encargado, del mozo y de la
+cocina, que nunca va a usar.
 
 **Respuesta de Claude:** _Pendiente._
 

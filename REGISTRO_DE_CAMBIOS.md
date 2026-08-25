@@ -17,6 +17,34 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Producción sin vulnerabilidades (AUD-012)
+
+- **IDs:** `AUD-012` (Resuelto). Nota agregada en `AUD-013`.
+- **Archivos:** `package.json`, `package-lock.json`.
+- **Cambio:** `firebase` 10.14.1 → 12.18.0, `react-router-dom` 6.30.6 → 7.18.2 y
+  `@firebase/rules-unit-testing` 3.0.4 → 5.0.2. **`npm audit --omit=dev` pasó de 12 a 0.**
+
+  Antes de empezar se separó qué afectaba a quién: 9 de las 12 venían por
+  `firebase → undici`, y `undici` no llega al navegador —sólo está en el build de Node, y el
+  bundle tiene cero referencias—. Afectaban a `seed.js`, no al comensal. Las que sí viajaban
+  al navegador eran las 2 de `react-router`: open redirect y constructor injection.
+
+  El salto de React Router es de major, pero la app usa sólo la API declarativa, toda
+  soportada en v7. Se verificó en ejecución: catch-all, rutas con parámetro y navegación
+  cliente, sin errores de consola.
+- **Validación:** `npm audit --omit=dev` 0; `npm test` 29/29; `eslint` 0 errores;
+  `npm run build` correcto con service worker.
+- **Regresión introducida:** el bundle pasó de **741 kB a 985 kB**. Se midió la causa en
+  lugar de suponerla: ~227 kB son de `firebase@12` y ~17 kB del router. Queda anotado en
+  `AUD-013`, que ya pedía separar en chunks; ahora es necesario y no opcional.
+- **Pendiente / riesgos:** quedan 12 vulnerabilidades **sólo de desarrollo**. No se subieron
+  `vite` (5→8) ni `vitest` (2→4): son majors que tocan el build y el plugin de PWA, y el
+  beneficio no alcanza al usuario —la crítica de `vitest` exige `vitest --ui`, que no usamos,
+  y la de `vite` afecta al servidor local—. Merece su propio bloque. Además, la app no se
+  ejerció con sesiones de personal después del upgrade: un major de router justifica repetir
+  los recorridos de encargado, mozo y cocina (`AUD-014`).
+
+
 ### 2026-08-24 — Claude — Correcciones de la verificación manual (AUD-014)
 
 - **IDs:** `AUD-014` (sigue Pendiente). Referencia: `AUD-004` y `AUD-008` quedaron Verificados
