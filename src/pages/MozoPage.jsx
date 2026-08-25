@@ -86,6 +86,25 @@ export default function MozoPage() {
     return unsub
   }, [localId])
 
+  // Las mesas asignadas viven en la ficha y las administra el encargado.
+  // Sin asignacion explicita, la persona ve todo el salon: es lo que
+  // esperan los bares chicos, donde no hay sectores.
+  //
+  // Esto tiene que quedar ARRIBA del efecto de avisos. El array de
+  // dependencias de un useEffect se evalua durante el render, en el punto
+  // exacto donde esta escrito: si misMesas se declarara mas abajo, esa
+  // evaluacion caeria en la zona muerta temporal y la vista reventaria
+  // entera con "Cannot access 'misMesas' before initialization", sin
+  // llegar a pintar nada.
+  const NUMS_MESAS_ACTUAL = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
+  const misMesas = ficha?.mesas_asignadas?.length > 0
+    ? ficha.mesas_asignadas.map(String)
+    : NUMS_MESAS_ACTUAL
+
+  // Quien firma el pedido. Antes era el id de una lista editable, que no
+  // identificaba a nadie de verdad; ahora es el uid de la cuenta.
+  const firmaDelMozo = ficha?.uid ? `empleado_${ficha.uid}` : 'empleado_desconocido'
+
   // ── Sonidos + notificaciones al detectar cambios ─────────────────────────────
   useEffect(() => {
     // Pedidos listos nuevos
@@ -151,18 +170,6 @@ export default function MozoPage() {
     if (!n || mesa?.estado === 'libre') return null
     return <span className={styles.personasTag}>👥 {n}</span>
   }
-
-  // Las mesas asignadas viven en la ficha y las administra el encargado.
-  // Sin asignacion explicita, la persona ve todo el salon: es lo que
-  // esperan los bares chicos, donde no hay sectores.
-  const NUMS_MESAS_ACTUAL = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
-  const misMesas = ficha?.mesas_asignadas?.length > 0
-    ? ficha.mesas_asignadas.map(String)
-    : NUMS_MESAS_ACTUAL
-
-  // Quien firma el pedido. Antes era el id de una lista editable, que no
-  // identificaba a nadie de verdad; ahora es el uid de la cuenta.
-  const firmaDelMozo = ficha?.uid ? `empleado_${ficha.uid}` : 'empleado_desconocido'
 
   // ── Alertas del mozo ──────────────────────────────────────────────────────────
   const mesasCuenta = misMesas.map(n => mesas[n]).filter(m => m?.estado === 'esperando_cuenta')

@@ -590,6 +590,12 @@ sesiones de personal —eso depende de `AUD-014`—. Un cambio de *major* en el 
 repetir los recorridos manuales de encargado, mozo y cocina antes de dar esto por cerrado en
 producción.
 
+**Re-verificación de Codex (2026-08-25):** la parte mecánica de `AUD-012` coincide con el
+informe: producción 0 vulnerabilidades; total 12 sólo de desarrollo (9 moderadas, 2 altas y
+1 crítica); 29/29 pruebas; lint sin errores; build/PWA correcto; bundle de 985,40 kB
+(261,34 kB gzip). El estado se mantiene en **Resuelto**, no Verificado, hasta repetir las
+rutas de personal después de corregir el bloqueo de `MozoPage` registrado en `AUD-014`.
+
 ### AUD-013 — P2 Medio — Entrega, PWA, mantenibilidad y accesibilidad incompletas
 
 **Estado:** Pendiente
@@ -641,6 +647,8 @@ automatizados, cada cambio en auth o navegación se valida a mano o no se valida
 | Modo soporte | Desde `/admin`, las tres vistas internas sin botones de acción. |
 | Aviso de llamadas | Con llamadas ya pendientes al abrir: **no** suena. Con una nueva: suena una sola vez, en la mesa correcta. |
 | Navegación entre locales | Pasar de un local a otro sin recargar no arrastra datos del anterior. |
+| **Render de cada vista interna** | Que Encargado, Mozo y Cocina **monten**. Un error de zona muerta temporal deja la pantalla en blanco y no lo ve ni el build ni la matriz de reglas. |
+| **Canje de invitación que falla** | Mensaje que diga que falló el canje, no "no estás asociado a ningún local". |
 
 **Nota sobre herramientas:** requiere un runner de navegador (Playwright o similar) y una
 estrategia para las sesiones de Google —lo habitual es el emulador de Auth con usuarios
@@ -731,6 +739,68 @@ los `useEffect` tocados quedaron con sus dependencias completas—; `npm run bui
 **Riesgo pendiente:** las correcciones se validaron con build, lint y la matriz de reglas,
 pero **ninguna de las cinco filas de arriba está automatizada** —es precisamente lo que
 justifica este hallazgo— ni se comprobó el audio real. La verificación sigue siendo manual.
+
+**Re-verificación de Codex (2026-08-25) — bloqueo:** con una sesión real de mozo, `/login`
+resuelve correctamente la pertenencia y redirige a `/l/bar-de-prueba/mozo`; por lo tanto, el
+email, el puntero `usuarios/{uid}` y la ficha de empleado no son la causa del fallo observado.
+La pantalla se cae antes de renderizar con `ReferenceError: Cannot access 'misMesas' before
+initialization`. `src/pages/MozoPage.jsx:90-134` usa `misMesas` dentro del efecto de avisos y
+en su lista de dependencias, pero la constante se declara recién en
+`src/pages/MozoPage.jsx:158-161`. Esto entró en `b066977` y demuestra exactamente el residuo
+que `AUD-014` intenta cubrir: build, lint y reglas pasan mientras una vista real no abre.
+
+**Corrección requerida antes de iniciar el bloque de Functions:** declarar
+`NUMS_MESAS_ACTUAL` y `misMesas` antes del efecto que las usa, repetir el acceso real del
+mozo y agregar una prueba de render/E2E para esta ruta. Como mejora asociada,
+`LoginPage.jsx:45-49` no debe descartar silenciosamente errores del canje de invitación: debe
+mostrar el error concreto para no confundir una falla de permisos/red con "cuenta no
+asociada".
+
+**Corrección de la regresión de `b066977` (2026-08-24):** la verificación con sesión real
+encontró que `MozoPage` quedaba en blanco con *Cannot access 'misMesas' before
+initialization*. Es una regresión propia del refactor de avisos y era bloqueante: el mozo no
+podía trabajar.
+
+**Causa:** el array de dependencias de un `useEffect` **se evalúa durante el render**, en el
+punto exacto donde está escrito. El efecto de avisos quedó en la línea 153 con `misMesas` en
+sus dependencias, y la constante se declaraba recién en la 159: zona muerta temporal, y la
+vista revienta antes de pintar nada. Antes del refactor no pasaba porque `misMesas` no estaba
+en las dependencias; la agregué al satisfacer `exhaustive-deps` sin mover la declaración.
+
+**Lo corregido:**
+
+1. `NUMS_MESAS_ACTUAL`, `misMesas` y `firmaDelMozo` se movieron arriba del efecto, con un
+   comentario que explica por qué el orden importa acá y no es una formalidad de estilo.
+
+2. **Se activó `no-use-before-define` en ESLint**, que es lo que faltaba: ni el build ni la
+   matriz de reglas ven este error —el archivo compila igual—, y sólo aparece al montar el
+   componente. Ahora la regla lo cubre en todo el repositorio, no sólo en el caso que
+   encontró Codex. Al activarla salieron dos casos más en `EncargadoPage`
+   (`cargarHistorial` y `calcularEstadisticas`): no eran crashes, porque se llaman dentro del
+   cuerpo del efecto —que corre después del render— y no en el array de dependencias, pero se
+   reubicaron igual para dejar la regla en cero y que siga sirviendo.
+
+3. **Errores del canje de invitación:** `LoginPage` los descartaba con un `.catch` vacío y la
+   persona terminaba viendo "tu cuenta no está asociada a ningún local" —falso, y la manda a
+   pedirle al encargado una invitación que ya tiene—. Ahora hay una pantalla propia que
+   distingue "el canje falló" de "no hay invitación", muestra el código del error y ofrece
+   reintentar. El mismo `.catch` vacío estaba en `useSesion.jsx`, en el camino de
+   `PuertaDeAcceso`, donde el mensaje engañoso era "no pertenecés al equipo": ahí el error
+   ahora queda registrado en consola.
+
+**Archivos:** `src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`,
+`src/pages/LoginPage.jsx`, `src/utils/useSesion.jsx`, `eslint.config.js`.
+
+**Pruebas:** `npx eslint .` 0 errores; `npm test` 29/29; `npm run build` correcto. La
+verificación del TDZ es estática y decisiva por naturaleza —el error es puramente léxico—:
+`misMesas` se declara en la línea 100 y se usa en la 153, y `no-use-before-define` da **0
+violaciones en todo el repositorio**.
+
+**Riesgo pendiente:** no se pudo montar `MozoPage` en ejecución porque requiere una sesión de
+Google con rol mozo. **El render de la vista del mozo tiene que repetirse con una cuenta
+real**, y ese render se agrega como caso a cubrir en este hallazgo. Tampoco se ejercitó la
+pantalla nueva de error de canje: para verla hay que forzar una falla en el canje, cosa que
+conviene hacer con el emulador de Auth cuando se arme el E2E.
 
 ## Orden de implementación para Claude
 

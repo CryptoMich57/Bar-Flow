@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [enviando, setEnviando] = useState(false)
   const [canjeando, setCanjeando] = useState(false)
   const [reciencanjeado, setRecienCanjeado] = useState(null)
+  const [errorCanje, setErrorCanje] = useState(null)
 
   const handleEntrar = async () => {
     setEnviando(true); setError(null)
@@ -42,10 +43,18 @@ export default function LoginPage() {
     if (!user || user.isAnonymous) return
     if (cargandoPertenencia || pertenencia?.local_id || esAdmin) return
     setCanjeando(true)
+    setErrorCanje(null)
     buscarInvitacion(user.email)
       .then(inv => inv ? aceptarInvitacion(user) : null)
       .then(res => { if (vivo) { setRecienCanjeado(res); setCanjeando(false) } })
-      .catch(() => { if (vivo) setCanjeando(false) })
+      .catch(err => {
+        // Antes esto se descartaba en silencio y la persona terminaba viendo
+        // "tu cuenta no esta asociada a ningun local", que es falso y manda a
+        // pedirle al encargado una invitacion que ya existe. Si el canje
+        // fallo, hay que decir que fallo el canje.
+        console.error('No se pudo canjear la invitacion:', err)
+        if (vivo) { setErrorCanje(err); setCanjeando(false) }
+      })
     return () => { vivo = false }
   }, [user, cargandoPertenencia, pertenencia, esAdmin])
 
@@ -73,6 +82,36 @@ export default function LoginPage() {
   if (user && !user.isAnonymous && destino) {
     return <Navigate to={`/l/${destino.local}/${VISTA_POR_ROL[destino.rol] || 'encargado'}`} replace />
   }
+
+  // El canje fallo teniendo invitacion: es distinto de no tener ninguna, y
+  // el mensaje tiene que decir eso para que la persona no vaya a pedir algo
+  // que ya le dieron.
+  if (user && !user.isAnonymous && errorCanje) return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <img src={getLogoDefecto()} alt="Logo" className={styles.logo}
+          onError={e => e.target.style.display='none'} />
+        <h2 className={styles.titulo}>{getNombrePlataforma()}</h2>
+        <p className={styles.subtitulo}>Acceso del personal</p>
+        <p className={styles.aviso}>
+          Encontramos tu invitacion pero no pudimos completarla. Volve a
+          intentar en un momento; si sigue igual, avisale al encargado.
+        </p>
+        <p className={styles.ayuda} style={{marginTop:8}}>
+          {errorCanje?.code || errorCanje?.message || 'Error desconocido'}
+        </p>
+        <button type="button" className="btn btn-gold" style={{marginTop:16}}
+          onClick={() => window.location.reload()}>
+          Reintentar
+        </button>
+        <button type="button" className="btn btn-ghost" style={{marginTop:10}}
+          onClick={() => cerrarSesion()}>
+          Cambiar de cuenta
+        </button>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
 
   // Cuenta real, pero sin local, sin invitacion y sin permisos de plataforma.
   const sesionHuerfana = !!user && !user.isAnonymous

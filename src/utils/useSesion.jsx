@@ -63,7 +63,13 @@ export function useAcceso(localId, rolesPermitidos = []) {
       if (!ficha && !esAdmin) {
         const invitacion = await buscarInvitacion(user.email)
         if (invitacion?.local_id === localId) {
-          await aceptarInvitacion(user).catch(() => {})
+          // No se descarta en silencio: si el canje falla, la persona
+          // termina viendo "no pertenecés al equipo", que es falso y la
+          // manda a pedir una invitación que ya tiene. Al menos queda
+          // registrado para poder diagnosticarlo.
+          await aceptarInvitacion(user).catch(err => {
+            console.error('No se pudo canjear la invitacion en', localId, err)
+          })
           ficha = await leerFichaEnLocal(localId, user.uid)
         }
       }

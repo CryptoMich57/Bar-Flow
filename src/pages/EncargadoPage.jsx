@@ -130,16 +130,6 @@ export default function EncargadoPage() {
     return unsub
   }, [localId])
 
-  useEffect(() => {
-    if (tab !== 'historial') return
-    cargarHistorial()
-  }, [localId, tab])
-
-  useEffect(() => {
-    if (tab !== 'estadisticas') return
-    calcularEstadisticas()
-  }, [localId, tab])
-
   // ── Suscripción global de pedidos para notificaciones ───────────────────────
   useEffect(() => {
     if (cantidadMesas === 0) return
@@ -257,6 +247,19 @@ export default function EncargadoPage() {
     stats.total = stats.efectivo + stats.tarjeta + stats.transferencia
     setEstadisticas(stats)
   }
+
+  // Estos dos efectos van despues de las funciones que llaman. No es una
+  // formalidad: si mañana alguna pasara al array de dependencias, ese array
+  // se evalua durante el render y caeria en la zona muerta temporal.
+  useEffect(() => {
+    if (tab !== 'historial') return
+    cargarHistorial()
+  }, [localId, tab])
+
+  useEffect(() => {
+    if (tab !== 'estadisticas') return
+    calcularEstadisticas()
+  }, [localId, tab])
 
   // ── Pedidos ──────────────────────────────────────────────────────────────────
   const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {

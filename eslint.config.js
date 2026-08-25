@@ -30,6 +30,15 @@ export default defineConfig([
       // Un catch vacio es deliberado en varios lugares: si falla el sonido o
       // el parseo de una sesion vieja, no hay nada que hacer ni que avisar.
       'no-empty': ['error', { allowEmptyCatch: true }],
+      // Usar una const antes de declararla revienta en runtime por la zona
+      // muerta temporal, y ni el build ni los tests de reglas lo ven: el
+      // archivo compila igual. Paso una vez con misMesas en el array de
+      // dependencias de un useEffect y dejo la vista del mozo en blanco.
+      'no-use-before-define': ['error', {
+        functions: false,   // las funciones se izan; declararlas abajo es normal
+        variables: true,
+        classes: true,
+      }],
     },
   },
   {

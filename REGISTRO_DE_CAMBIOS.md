@@ -17,6 +17,67 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Regresión bloqueante de la vista del mozo (AUD-014)
+
+- **IDs:** `AUD-014` (sigue Pendiente). `AUD-012` quedó Verificado por Codex.
+- **Archivos:** `src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`,
+  `src/pages/LoginPage.jsx`, `src/utils/useSesion.jsx`, `eslint.config.js`.
+- **Cambio:** la prueba con sesión real encontró que `MozoPage` quedaba en blanco con
+  *Cannot access 'misMesas' before initialization*. Regresión propia de `b066977` y
+  bloqueante: el mozo no podía trabajar.
+
+  La causa es que el array de dependencias de un `useEffect` **se evalúa durante el render**,
+  donde está escrito. El efecto de avisos tenía `misMesas` en sus dependencias y la constante
+  se declaraba más abajo. Antes del refactor no pasaba porque `misMesas` no figuraba en las
+  dependencias; la agregué al satisfacer `exhaustive-deps` sin mover la declaración.
+
+  Se movieron las declaraciones arriba del efecto y **se activó `no-use-before-define`**, que
+  es lo que faltaba: este error compila igual y sólo aparece al montar el componente. La
+  regla ahora lo cubre en todo el repositorio. Al activarla aparecieron dos casos más en
+  `EncargadoPage` que no eran crashes —se llaman dentro del cuerpo del efecto, no en las
+  dependencias— pero se reubicaron para dejarla en cero.
+
+  Aparte, los errores del canje de invitación ya no se descartan: `LoginPage` tiene una
+  pantalla propia que distingue "falló el canje" de "no hay invitación", con el código del
+  error y opción de reintentar. El mismo `.catch` vacío estaba en `useSesion.jsx`, donde el
+  mensaje engañoso era "no pertenecés al equipo"; ahí el error queda en consola.
+- **Validación:** `npx eslint .` 0 errores y `no-use-before-define` con 0 violaciones en todo
+  el repositorio; `npm test` 29/29; `npm run build` correcto.
+- **Pendiente / riesgos:** **el render del mozo no se pudo verificar en ejecución** —requiere
+  sesión de Google con ese rol—. La comprobación del TDZ es estática, que para este defecto
+  es decisiva por ser puramente léxico, pero el montaje real queda para Codex. Tampoco se
+  ejercitó la pantalla nueva de error de canje: forzar esa falla conviene hacerlo con el
+  emulador de Auth al armar el E2E. Ambos casos se agregaron a la tabla de alcance de
+  `AUD-014`.
+
+
+### 2026-08-25 — Codex — Re-verificación de AUD-012 y bloqueo real en vista Mozo
+
+- **IDs:** `AUD-012` (sigue Resuelto, pendiente de verificación final) y `AUD-014`
+  (Pendiente, con regresión reproducida).
+- **Archivos:** `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`. No se modificó
+  código funcional.
+- **Validación de AUD-012:** sobre `656207c`, `npm audit --omit=dev` dio **0**;
+  `npm audit` dio **12 sólo de desarrollo** (9 moderadas, 2 altas y 1 crítica);
+  `npm test` pasó 29/29 con JDK 21; `npm run lint` dio 0 errores y 6 advertencias;
+  `npm run build` generó la PWA y confirmó 985,40 kB / 261,34 kB gzip. El árbol
+  instalado contiene `firebase@12.18.0`, `react-router-dom@7.18.2` y
+  `@firebase/rules-unit-testing@5.0.2`; `undici` queda únicamente por dependencias de
+  desarrollo.
+- **Bloqueo encontrado con sesión real:** `/login` reconoce la cuenta de mozo y la redirige
+  correctamente a `/l/bar-de-prueba/mozo`, por lo que la asociación de Firestore y el canje
+  no son la causa. La vista queda en blanco con `ReferenceError: Cannot access 'misMesas'
+  before initialization`. En `src/pages/MozoPage.jsx`, el `useEffect` de avisos usa
+  `misMesas` y la incluye en dependencias en la línea 134, pero la constante se declara
+  recién en la línea 159. La regresión entró en `b066977`.
+- **Acción requerida antes de Functions:** mover la definición de `NUMS_MESAS_ACTUAL` y
+  `misMesas` por encima del efecto que las usa, repetir la vista con una sesión real y sumar
+  este render al alcance E2E de `AUD-014`. Build, lint y las pruebas de reglas no detectan
+  este tipo de caída de interfaz.
+- **Mejora secundaria:** `LoginPage.jsx` descarta silenciosamente cualquier error al canjear
+  una invitación. Aunque no causó este incidente, debe mostrar el error real para no hacer
+  creer que falta la asociación de la cuenta.
+
 ### 2026-08-24 — Claude — Producción sin vulnerabilidades (AUD-012)
 
 - **IDs:** `AUD-012` (Resuelto). Nota agregada en `AUD-013`.
