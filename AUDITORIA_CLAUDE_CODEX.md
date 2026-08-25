@@ -78,7 +78,7 @@ La separación estructural por `localId` está bien encaminada y `rutas.js` evit
 
 ### AUD-001 — P0 Crítico — Un comensal puede operar cualquier mesa del local
 
-**Estado:** Pendiente
+**Estado:** Resuelto — **sin desplegar**
 
 **Evidencia:** `firestore.rules:84-85` define comensal como cualquier sesión en un local activo; `firestore.rules:163-183` le permite leer y modificar mesas, pedidos, mensajes y llamados sin comprobar `mesaId`, UID o una sesión de mesa.
 
@@ -86,7 +86,63 @@ La separación estructural por `localId` está bien encaminada y `rutas.js` evit
 
 **Solución requerida:** emitir en backend una sesión/capacidad de mesa ligada a `{uid, localId, mesaId, vencimiento}` y hacer que las reglas verifiquen esa relación. App Check puede complementar, pero no reemplaza la autorización. Agregar pruebas negativas entre mesas y locales.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** implementada la capacidad de mesa que pedía el hallazgo. **No está
+desplegada**, y por una razón que importa: ver "Secuencia de despliegue" abajo.
+
+**El problema, dicho como se siente en el salón:** el comensal entra con una sesión anónima
+que no dice dónde está sentado. Con eso, cualquiera que supiera el identificador de un local
+podía leer y escribir **todas** sus mesas: ver la cuenta de la mesa de al lado, agregarle un
+pedido, vaciarle el carrito. Esconder mejor el número de mesa no servía —está impreso en el
+QR, a la vista de todos—. Lo que había que cambiar es qué significa el permiso.
+
+**La solución:** el permiso deja de ser "tengo sesión" y pasa a ser "el servidor me habilitó
+ESTA mesa, y vence".
+
+1. **Backend** (`functions/index.js`, callable `abrirMesa`): valida que el local exista y
+   esté atendiendo, y que la mesa sea una de las que ese local declaró —sin eso alguien
+   podría pedir capacidad para la mesa 9999 y ensuciar la base—. Después emite un custom
+   claim `mesa: { l, m, exp }` con 6 horas de vigencia: una comida larga entra cómoda, una
+   sesión olvidada en un celular ajeno no sirve al día siguiente. Los claims anteriores se
+   pisan a propósito: una sesión vale para una mesa a la vez, así que cambiarse de mesa
+   invalida la anterior en el mismo acto.
+
+2. **Reglas:** `esComensal(localId, mesaId)` compara el claim contra el path que se está
+   escribiendo y exige que no esté vencido. El claim lo firma Firebase: el cliente no lo
+   puede fabricar ni estirar el vencimiento.
+
+3. **Distinción necesaria:** la carta y la configuración del local se leen **sin** capacidad,
+   con `esComensalDelLocal`. Es lo que la pantalla muestra mientras la persona decide qué
+   pedir, y no expone nada de otras mesas. Exigir capacidad ahí habría obligado a pedir
+   permiso antes de poder mostrar siquiera el menú.
+
+4. **Cliente** (`src/firebase/capacidadMesa.js` y `ZonaCliente`): pide la capacidad apenas
+   se abre el QR, antes de tocar nada. Detalle que costó ver y conviene dejar escrito: los
+   custom claims **no aparecen** en el token que el navegador ya tiene, así que hay que
+   forzar `getIdToken(true)` después de que la función responde. Sin eso el permiso existe
+   en el servidor y las escrituras se rechazan igual.
+
+**Pruebas:** 7 casos nuevos, todos contra el emulador (36/36 en total):
+
+| Caso | Resultado |
+|---|---|
+| Sesión anónima **sin** capacidad | No lee ni escribe ninguna mesa |
+| Capacidad para la mesa 1 → mesa 2 | Denegado, también sus pedidos y mensajes |
+| Capacidad del bar A → bar B | Denegado |
+| Capacidad **vencida** | Denegado |
+| Carta y configuración sin capacidad | Permitido, como debe ser |
+| Personal del local | Opera cualquier mesa sin capacidad: entra por su ficha |
+
+**Secuencia de despliegue — no separar estos pasos.** Las reglas nuevas exigen un claim que
+sólo entrega la función. Publicar las reglas sin la función deja a todos los comensales sin
+poder abrir su mesa. El orden es: desplegar `functions` primero, verificar que `abrirMesa`
+responde, y recién entonces `firestore:rules` junto con el cliente nuevo. Por eso se deja
+commiteado pero sin desplegar.
+
+**Riesgo pendiente:** el recorrido completo del comensal contra el backend real no se
+ejerció —requiere las funciones desplegadas o el emulador de Functions corriendo junto al de
+Firestore—. Queda para `AUD-014`. Tampoco se cubrió qué pasa si el claim vence **mientras**
+la persona está comiendo: hoy la escritura falla y la pantalla muestra el error genérico;
+lo correcto sería renovar la capacidad sola, y queda anotado como mejora.
 
 ### AUD-002 — P0 Crítico — Precios, totales y estados financieros son controlados por el cliente
 
@@ -533,7 +589,7 @@ detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelt
 
 ### AUD-012 — P2 Medio — Dependencias con vulnerabilidades conocidas
 
-**Estado:** Resuelto
+**Estado:** Verificado
 
 **Evidencia:** `npm audit --omit=dev` reportó 12 vulnerabilidades: 1 alta y 11 moderadas. La cadena principal incluye `firebase@10.14.1` → `undici@6.19.7`; `react-router-dom@6.30.6` también está señalado.
 
@@ -801,6 +857,21 @@ Google con rol mozo. **El render de la vista del mozo tiene que repetirse con un
 real**, y ese render se agrega como caso a cubrir en este hallazgo. Tampoco se ejercitó la
 pantalla nueva de error de canje: para verla hay que forzar una falla en el canje, cosa que
 conviene hacer con el emulador de Auth cuando se arme el E2E.
+
+**Verificación final de Codex (2026-08-25):** bloqueo levantado sobre `f50d6bf`. Se reinició
+el servidor de `localhost:5175` con las dependencias actuales y `--force` —el proceso
+anterior había arrancado antes de `AUD-012` y todavía servía el prebundle de Router 6—. Con
+la sesión real del mozo, `/login` redirigió a `/l/bar-de-prueba/mozo`; la vista montó y se
+recorrieron `Alertas`, `Mis mesas` y `Tomar pedido` sin errores propios de la aplicación.
+Además, Codex repitió `npm run lint` (0 errores), `npm test` (29/29) y `npm run build`
+(PWA correcta, 986,52 kB / 261,59 kB gzip). `AUD-012` pasa a **Verificado** y el bloque
+`AUD-001 + AUD-002 + AUD-005` puede comenzar.
+
+**Residuo que permanece en AUD-014:** `LoginPage` ya diferencia correctamente un canje
+fallido, pero el camino de acceso directo por `PuertaDeAcceso` sólo registra el error desde
+`useSesion.jsx` y luego puede mostrar igualmente "no pertenecés al equipo". No bloquea el
+trabajo de Functions, pero el E2E de canje fallido debe exigir el mismo mensaje correcto en
+ambos caminos y no sólo presencia en consola.
 
 ## Orden de implementación para Claude
 

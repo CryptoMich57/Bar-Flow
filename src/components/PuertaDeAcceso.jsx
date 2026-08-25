@@ -14,7 +14,7 @@ import styles from './PuertaDeAcceso.module.css'
 // plataforma entra a cualquier local para poder dar soporte.
 export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, children }) {
   const { localId, local, nombre: nombreBar, logo, cargando: cargandoLocal } = useLocal()
-  const { user, rol, ficha, esAdmin, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
+  const { user, rol, ficha, esAdmin, errorCanje, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
   const [error, setError]       = useState(null)
   const [enviando, setEnviando] = useState(false)
 
@@ -84,6 +84,35 @@ export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, childre
   // esconder lo que no va a poder hacer.
   if (tieneAcceso) return (
     <AccesoProvider rol={rol} ficha={ficha} esAdmin={esAdmin}>{children}</AccesoProvider>
+  )
+
+  // Tenia invitacion para este local pero el canje fallo. Decirle "no
+  // pertenecés al equipo" seria mentirle y mandarla a pedir algo que ya tiene.
+  if (errorCanje) return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <img src={logo} alt="Logo" className={styles.logo}
+          onError={e => e.target.style.display='none'} />
+        <h2 className={styles.titulo}>{nombreBar}</h2>
+        <p className={styles.subtitulo}>{emoji} Acceso {titulo}</p>
+        <p className={styles.aviso}>
+          Encontramos tu invitacion a {nombreBar} pero no pudimos completarla.
+          Volve a intentar; si sigue igual, avisale al encargado.
+        </p>
+        <p className={styles.ayuda} style={{marginTop:8}}>
+          {errorCanje?.code || errorCanje?.message || 'Error desconocido'}
+        </p>
+        <button type="button" className="btn btn-gold" style={{marginTop:16}}
+          onClick={() => window.location.reload()}>
+          Reintentar
+        </button>
+        <button type="button" className="btn btn-ghost" style={{marginTop:10}}
+          onClick={() => cerrarSesion()}>
+          Cambiar de cuenta
+        </button>
+      </div>
+      <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
   )
 
   // Entro con una cuenta real, pero sin permiso para esta vista de este local.

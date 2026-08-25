@@ -40,13 +40,13 @@ export function useSesion({ anonimoAutomatico = true } = {}) {
 // del bar B, ahi no tiene ficha y no hay rol que devolver.
 export function useAcceso(localId, rolesPermitidos = []) {
   const { user, cargando: cargandoSesion } = useSesion({ anonimoAutomatico: false })
-  const [estado, setEstado] = useState({ ficha: null, esAdmin: false, resolviendo: true })
+  const [estado, setEstado] = useState({ ficha: null, esAdmin: false, errorCanje: null, resolviendo: true })
 
   useEffect(() => {
     let vivo = true
     if (cargandoSesion) return
     if (!user || user.isAnonymous) {
-      setEstado({ ficha: null, esAdmin: false, resolviendo: false })
+      setEstado({ ficha: null, esAdmin: false, errorCanje: null, resolviendo: false })
       return
     }
     setEstado(e => ({ ...e, resolviendo: true }))
@@ -60,20 +60,24 @@ export function useAcceso(localId, rolesPermitidos = []) {
       // con una invitacion pendiente para este local. Se canjea sola:
       // la persona hizo clic en el link de su bar y entro con Google,
       // no tiene por que apretar un boton mas.
+      let errorCanje = null
       if (!ficha && !esAdmin) {
         const invitacion = await buscarInvitacion(user.email)
         if (invitacion?.local_id === localId) {
-          // No se descarta en silencio: si el canje falla, la persona
-          // termina viendo "no pertenecés al equipo", que es falso y la
-          // manda a pedir una invitación que ya tiene. Al menos queda
-          // registrado para poder diagnosticarlo.
-          await aceptarInvitacion(user).catch(err => {
+          // El error NO se descarta ni se queda solo en la consola: viaja
+          // hasta la pantalla. Si no, la persona ve "no pertenecés al
+          // equipo" —falso— y va a pedirle al encargado una invitación que
+          // ya tiene.
+          try {
+            await aceptarInvitacion(user)
+          } catch (err) {
             console.error('No se pudo canjear la invitacion en', localId, err)
-          })
+            errorCanje = err
+          }
           ficha = await leerFichaEnLocal(localId, user.uid)
         }
       }
-      if (vivo) setEstado({ ficha, esAdmin, resolviendo: false })
+      if (vivo) setEstado({ ficha, esAdmin, errorCanje, resolviendo: false })
     }
     resolver()
 
@@ -93,6 +97,9 @@ export function useAcceso(localId, rolesPermitidos = []) {
     // lista editable ni de una pantalla donde la persona elija quien es.
     ficha: estado.ficha,
     esAdmin: estado.esAdmin,
+    // Hubo invitacion pero el canje fallo. Es distinto de no tener ninguna,
+    // y la pantalla tiene que poder decir cual de las dos cosas paso.
+    errorCanje: estado.errorCanje,
     tieneAcceso,
     cargando: cargandoSesion || estado.resolviendo,
   }

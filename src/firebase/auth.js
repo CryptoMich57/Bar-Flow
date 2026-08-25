@@ -25,6 +25,7 @@ import {
 import { getDoc } from 'firebase/firestore'
 import { auth } from './config'
 import { refEmpleado, refUsuario, refSuperadmin } from './rutas'
+import { olvidarCapacidad } from './capacidadMesa'
 
 export const ROLES = ['encargado', 'cocina', 'mozo']
 
@@ -57,6 +58,7 @@ export const entrarConGoogle = async () => {
 
 export const cerrarSesion = async () => {
   promesaAnonima = null
+  olvidarCapacidad()
   await signOut(auth)
 }
 

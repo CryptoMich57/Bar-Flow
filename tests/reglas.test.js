@@ -27,10 +27,24 @@ import {
 let entorno
 
 // ── Identidades ─────────────────────────────────────────────
-// El comensal es una sesion anonima: el proveedor lo firma Firebase
-// y es lo que separa a un cliente sentado en la mesa de una cuenta
-// del personal o de la plataforma.
-const comensal = () => entorno.authenticatedContext('comensal-1', {
+// El comensal es una sesion anonima CON capacidad de mesa: el backend
+// se la entrego para una mesa concreta y vence. El proveedor y el claim
+// los firma Firebase, asi que el cliente no puede fabricarlos.
+const EN_UNA_HORA = () => Date.now() + 60 * 60 * 1000
+const HACE_UNA_HORA = () => Date.now() - 60 * 60 * 1000
+
+const comensalDe = (localId, mesa, opciones = {}) =>
+  entorno.authenticatedContext(opciones.uid || 'comensal-1', {
+    firebase: { sign_in_provider: 'anonymous' },
+    mesa: { l: localId, m: `mesa_${mesa}`, exp: opciones.exp || EN_UNA_HORA() },
+  })
+
+// El de siempre: sentado en la mesa 1 del bar A.
+const comensal = () => comensalDe('bar-a', 1)
+
+// Una sesion anonima sin capacidad ninguna: es lo que tiene alguien que
+// abrio la app pero todavia no paso por el backend.
+const anonimoSinCapacidad = () => entorno.authenticatedContext('curioso', {
   firebase: { sign_in_provider: 'anonymous' },
 })
 
@@ -98,6 +112,8 @@ beforeEach(async () => {
 
     await setDoc(itemCarta(d, 'bar-a', 'cafe'), { nombre: 'Cafe', precio: 900, disponible: true })
     await setDoc(mesa(d, 'bar-a', 1), { estado: 'libre', mesa_numero: '1' })
+    await setDoc(mesa(d, 'bar-a', 2), { estado: 'libre', mesa_numero: '2' })
+    await setDoc(mesa(d, 'bar-b', 1), { estado: 'libre', mesa_numero: '1' })
     await setDoc(mesa(d, 'bar-suspendido', 1), { estado: 'libre', mesa_numero: '1' })
 
     // Invitacion pendiente del bar A para Carla.
@@ -116,7 +132,8 @@ describe('AUD-001 / AUD-003 — quien es comensal', () => {
 
   it('una cuenta de Google sin ficha en el local NO es comensal', async () => {
     // Antes bastaba con estar logueado, asi que el personal de otro bar
-    // —y la plataforma— podian escribir mesas ajenas.
+    // —y la plataforma— podian escribir mesas ajenas. Y ni siquiera
+    // fabricando el claim: las reglas exigen proveedor anonimo.
     const d = db(conGoogle('extranio', 'extranio@gmail.com'))
     await assertFails(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
   })
@@ -124,6 +141,54 @@ describe('AUD-001 / AUD-003 — quien es comensal', () => {
   it('el personal del local si opera sus mesas', async () => {
     const d = db(conGoogle('mario', 'mario@a.com'))
     await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
+  })
+})
+
+// ════════════════════════════════════════════════════════════
+describe('AUD-001 — el comensal solo opera SU mesa', () => {
+  it('sin capacidad no puede leer ni escribir ninguna mesa', async () => {
+    // Es el estado de quien abrio la app y todavia no paso por el backend.
+    // Antes bastaba con tener sesion anonima para operar todo el local.
+    const d = db(anonimoSinCapacidad())
+    await assertFails(getDoc(mesa(d, 'bar-a', 1)))
+    await assertFails(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
+  })
+
+  it('con capacidad para la mesa 1 NO puede tocar la mesa 2', async () => {
+    const d = db(comensalDe('bar-a', 1))
+    await assertSucceeds(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
+    await assertFails(getDoc(mesa(d, 'bar-a', 2)))
+    await assertFails(setDoc(mesa(d, 'bar-a', 2), { estado: 'ocupada' }))
+  })
+
+  it('tampoco los pedidos, mensajes ni llamadas de otra mesa', async () => {
+    const d = db(comensalDe('bar-a', 1))
+    await assertFails(getDocs(pedidos(d, 'bar-a', 2)))
+    await assertFails(setDoc(doc(pedidos(d, 'bar-a', 2)), { total: 0 }))
+    await assertFails(setDoc(doc(collection(d, 'locales', 'bar-a', 'mesas', 'mesa_2', 'mensajes')), { texto: 'hola' }))
+  })
+
+  it('una capacidad del bar A no sirve en el bar B', async () => {
+    const d = db(comensalDe('bar-a', 1))
+    await assertFails(setDoc(mesa(d, 'bar-b', 1), { estado: 'ocupada' }))
+  })
+
+  it('una capacidad vencida no sirve', async () => {
+    const d = db(comensalDe('bar-a', 1, { exp: HACE_UNA_HORA() }))
+    await assertFails(setDoc(mesa(d, 'bar-a', 1), { estado: 'ocupada' }))
+    await assertFails(getDoc(mesa(d, 'bar-a', 1)))
+  })
+
+  it('la carta y la configuracion se leen sin capacidad: es lo que se ve antes de sentarse', async () => {
+    const d = db(anonimoSinCapacidad())
+    await assertSucceeds(getDocs(carta(d, 'bar-a')))
+    await assertSucceeds(getDoc(doc(d, 'locales', 'bar-a', 'sistema', 'configuracion')))
+  })
+
+  it('el personal opera cualquier mesa de su local sin capacidad', async () => {
+    // El mozo no pasa por el backend: entra por su ficha de empleado.
+    const d = db(conGoogle('mario', 'mario@a.com'))
+    await assertSucceeds(setDoc(mesa(d, 'bar-a', 2), { estado: 'ocupada' }))
   })
 })
 
@@ -193,7 +258,9 @@ describe('AUD-003 — el soporte de plataforma es de solo lectura', () => {
 // ════════════════════════════════════════════════════════════
 describe('Local suspendido', () => {
   it('congela al comensal y al personal', async () => {
-    await assertFails(setDoc(mesa(db(comensal()), 'bar-suspendido', 1), { estado: 'ocupada' }))
+    // Incluso con una capacidad valida para ese local: si esta suspendido,
+    // no atiende. El backend tampoco entrega capacidades nuevas.
+    await assertFails(setDoc(mesa(db(comensalDe('bar-suspendido', 1)), 'bar-suspendido', 1), { estado: 'ocupada' }))
     const ana = db(conGoogle('ana', 'ana@a.com'))
     await assertFails(setDoc(itemCarta(ana, 'bar-suspendido', 'x'), { nombre: 'x' }))
   })

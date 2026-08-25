@@ -17,6 +17,54 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Capacidad de mesa: el comensal solo opera la suya (AUD-001)
+
+- **IDs:** `AUD-001` (Resuelto, **sin desplegar**). Residuo de `AUD-014` cerrado en el mismo
+  cambio.
+- **Archivos:** `functions/` (nuevo), `src/firebase/capacidadMesa.js` (nuevo),
+  `firestore.rules`, `firebase.json`, `src/App.jsx`, `src/firebase/auth.js`,
+  `src/utils/useSesion.jsx`, `src/components/PuertaDeAcceso.jsx`, `tests/reglas.test.js`,
+  `.gitignore`.
+- **Cambio:** el permiso del comensal deja de ser "tengo sesión" y pasa a ser "el servidor me
+  habilitó esta mesa, y vence". Una callable `abrirMesa` valida local y número de mesa y
+  emite un custom claim `{l, m, exp}` con 6 horas de vigencia; las reglas lo comparan contra
+  el path. La carta y la configuración siguen leyéndose sin capacidad, porque son lo que la
+  pantalla muestra antes de que la persona decida.
+
+  Se cerró además el residuo que había señalado Codex: el error del canje de invitación ahora
+  llega a la pantalla también por el camino de `PuertaDeAcceso`, no sólo por `/login`. Antes
+  ahí sólo se registraba en consola y se mostraba "no pertenecés al equipo", que es falso.
+- **Validación:** `npm test` **36/36** —7 casos nuevos, todos negativos salvo dos—;
+  `npx eslint .` 0 errores; `npm run build` correcto; el módulo de funciones carga y exporta
+  `abrirMesa`.
+- **Pendiente / riesgos:** **no desplegado, y no se debe desplegar por partes.** Las reglas
+  nuevas exigen un claim que sólo entrega la función: publicar reglas sin función deja a
+  todos los comensales sin poder abrir su mesa. Orden obligatorio: `functions` → verificar →
+  `firestore:rules` + cliente. Tampoco se ejerció el recorrido real contra el backend
+  (`AUD-014`), ni se resolvió qué pasa si la capacidad vence mientras la persona come: hoy
+  falla la escritura y se muestra un error genérico; correspondería renovarla sola.
+
+
+### 2026-08-25 — Codex — Mozo verificado en ejecución y AUD-012 cerrado
+
+- **IDs:** `AUD-012` (Verificado) y `AUD-014` (sigue Pendiente).
+- **Archivos:** `AUDITORIA_CLAUDE_CODEX.md`, `REGISTRO_DE_CAMBIOS.md`. No se modificó
+  código funcional.
+- **Validación real:** se reinició `localhost:5175` con las dependencias actuales y
+  `--force`, porque el servidor anterior había arrancado antes del upgrade y aún servía el
+  prebundle de Router 6. Con la sesión real del mozo, `/login` redirigió a
+  `/l/bar-de-prueba/mozo`; montaron `Alertas`, `Mis mesas` y `Tomar pedido`, sin errores
+  propios de la aplicación. Esto confirma la corrección del TDZ de `misMesas` y el recorrido
+  de personal sobre React Router 7.
+- **Verificación repetida:** `npm run lint` 0 errores y 6 advertencias; `npm test` 29/29;
+  `npm run build` correcto con PWA, 986,52 kB / 261,59 kB gzip.
+- **Decisión:** queda levantado el bloqueo y Claude puede iniciar
+  `AUD-001 + AUD-002 + AUD-005`.
+- **Residuo:** el acceso por `/login` ya muestra el fallo de canje, pero el camino directo
+  por `PuertaDeAcceso` sólo lo escribe en consola desde `useSesion.jsx` y todavía puede
+  terminar mostrando "no pertenecés al equipo". Debe cubrirse y corregirse dentro de
+  `AUD-014`; no bloquea Functions.
+
 ### 2026-08-24 — Claude — Regresión bloqueante de la vista del mozo (AUD-014)
 
 - **IDs:** `AUD-014` (sigue Pendiente). `AUD-012` quedó Verificado por Codex.

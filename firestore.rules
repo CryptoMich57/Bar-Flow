@@ -80,14 +80,43 @@ service cloud.firestore {
         && ficha(localId).rol == 'encargado';
     }
 
-    // El comensal es, literalmente, una sesion ANONIMA en un local que
-    // esta funcionando. Antes esta funcion decia solo logueado(), lo que
-    // convertia en "comensal" a cualquier cuenta con sesion: al personal
-    // de otro bar y —peor— al admin de la plataforma, que asi podia
-    // escribir mesas y pedidos de un negocio ajeno pese a que la UI le
-    // escondia los botones. El proveedor de acceso lo firma Firebase y
-    // no lo elige el cliente, asi que sirve como frontera real.
-    function esComensal(localId) {
+    // El comensal es una sesion ANONIMA con una CAPACIDAD DE MESA vigente
+    // que el backend le entrego para esta mesa concreta.
+    //
+    // Esto tuvo dos etapas. Primero la funcion decia solo logueado(), lo
+    // que convertia en "comensal" a cualquier cuenta con sesion: al
+    // personal de otro bar y —peor— al admin de la plataforma. Se acoto a
+    // sesiones anonimas, pero seguia faltando lo principal: una sesion
+    // anonima no dice donde esta sentada la persona, asi que cualquiera
+    // que supiera el identificador de un local podia leer y escribir
+    // TODAS sus mesas. Ver la cuenta de la mesa de al lado, agregarle un
+    // pedido, vaciarle el carrito.
+    //
+    // Esconder el numero de mesa no servia: esta en el QR, a la vista. Lo
+    // que cambia es que el permiso deja de ser "tengo sesion" y pasa a ser
+    // "el servidor me habilito ESTA mesa, y vence". El claim lo firma
+    // Firebase; el cliente no lo puede fabricar ni estirar.
+    function capacidadDeMesa() {
+      return request.auth.token.mesa;
+    }
+
+    function tieneCapacidad(localId, mesaId) {
+      return logueado()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous'
+        && capacidadDeMesa() != null
+        && capacidadDeMesa().l == localId
+        && capacidadDeMesa().m == mesaId
+        && capacidadDeMesa().exp > request.time.toMillis();
+    }
+
+    function esComensal(localId, mesaId) {
+      return tieneCapacidad(localId, mesaId) && localActivo(localId);
+    }
+
+    // La carta y los datos del local se leen antes de tener capacidad:
+    // son lo que la pantalla muestra mientras el comensal decide. No
+    // exponen nada de otras mesas.
+    function esComensalDelLocal(localId) {
       return logueado()
         && request.auth.token.firebase.sign_in_provider == 'anonymous'
         && localActivo(localId);
@@ -163,7 +192,7 @@ service cloud.firestore {
 
       // -- CARTA ----------------------------------------------
       match /carta/{itemId} {
-        allow read:  if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow read:  if esComensalDelLocal(localId) || esPersonal(localId) || esAdminPlataforma();
         // La plataforma NO edita la carta de un cliente. Soporte mira.
         allow write: if esEncargado(localId);
       }
@@ -171,7 +200,7 @@ service cloud.firestore {
       // -- CONFIGURACION DEL LOCAL ----------------------------
       // Datos de transferencia, mozos, cantidad de mesas.
       match /sistema/{docId} {
-        allow read:  if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
+        allow read:  if esComensalDelLocal(localId) || esPersonal(localId) || esAdminPlataforma();
         // Datos de transferencia y mozos son del negocio, no nuestros.
         allow write: if esEncargado(localId);
       }
@@ -180,25 +209,25 @@ service cloud.firestore {
       // Operar una mesa es del comensal sentado en ella y del personal
       // del local. La plataforma lee para dar soporte y nada mas.
       match /mesas/{mesaId} {
-        allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
-        allow create, update: if esComensal(localId) || esPersonal(localId);
+        allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
+        allow create, update: if esComensal(localId, mesaId) || esPersonal(localId);
         allow delete:         if esEncargado(localId);
 
         match /pedidos/{pedidoId} {
-          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create, update: if esComensal(localId) || esPersonal(localId);
+          allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
+          allow create, update: if esComensal(localId, mesaId) || esPersonal(localId);
           allow delete:         if esPersonal(localId);
         }
 
         match /mensajes/{mensajeId} {
-          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create:         if esComensal(localId) || esPersonal(localId);
+          allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if esComensal(localId, mesaId) || esPersonal(localId);
           allow update, delete: if esPersonal(localId);
         }
 
         match /llamadas/{llamadaId} {
-          allow read:           if esComensal(localId) || esPersonal(localId) || esAdminPlataforma();
-          allow create:         if esComensal(localId) || esPersonal(localId);
+          allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
+          allow create:         if esComensal(localId, mesaId) || esPersonal(localId);
           allow update, delete: if esPersonal(localId);
         }
       }

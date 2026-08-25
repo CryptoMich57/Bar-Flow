@@ -8,8 +8,11 @@ import RegistroPage from './pages/RegistroPage'
 import AdminPage from './pages/AdminPage'
 import PuertaDeAcceso from './components/PuertaDeAcceso'
 import { LocalProvider, useLocal } from './utils/LocalContext'
+import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
 import { useSesion, useAcceso } from './utils/useSesion'
 import { cerrarSesion } from './firebase/auth'
+import { abrirSesionDeMesa } from './firebase/capacidadMesa'
 
 // ============================================================
 //  RUTAS
@@ -26,7 +29,29 @@ import { cerrarSesion } from './firebase/auth'
 function ZonaCliente({ children }) {
   const { user, cargando, error } = useSesion()
   const { localId, local, cargando: cargandoLocal } = useLocal()
+  const { mesaId } = useParams()
   const { rol, cargando: cargandoRol } = useAcceso(localId, ['cocina', 'mozo'])
+  const [capacidad, setCapacidad] = useState({ lista: false, error: null })
+
+  // Antes de que el comensal toque nada, el backend le da permiso para
+  // ESTA mesa. Sin eso las reglas rechazan cada escritura: una sesion
+  // anonima ya no alcanza, justamente para que nadie pueda operar la mesa
+  // de al lado. El personal no lo necesita: entra por su ficha.
+  useEffect(() => {
+    let vivo = true
+    setCapacidad({ lista: false, error: null })
+    if (!user || !localId || !mesaId) return
+    if (!user.isAnonymous) { setCapacidad({ lista: true, error: null }); return }
+    if (local?.estado === 'suspendido') return
+
+    abrirSesionDeMesa(localId, mesaId)
+      .then(() => { if (vivo) setCapacidad({ lista: true, error: null }) })
+      .catch(err => {
+        console.error('No se pudo abrir la mesa:', err)
+        if (vivo) setCapacidad({ lista: false, error: err })
+      })
+    return () => { vivo = false }
+  }, [user, localId, mesaId, local?.estado])
 
   if (error) return (
     <div className="pantallaEstado">
@@ -70,6 +95,27 @@ function ZonaCliente({ children }) {
         </button>
       </div>
     </div>
+  )
+
+  // La capacidad todavia no llego o fallo. Es distinto de "no hay sesion":
+  // aca ya hay sesion, lo que falta es el permiso para esta mesa.
+  if (capacidad.error) return (
+    <div className="pantallaEstado">
+      <div style={{textAlign:'center', maxWidth:340}}>
+        <p>No pudimos abrir la mesa {mesaId}.</p>
+        <p style={{color:'var(--text3)', fontSize:'0.85em', marginTop:8}}>
+          {capacidad.error?.message || 'Probá de nuevo en un momento.'}
+        </p>
+        <button className="btn btn-gold" style={{marginTop:16}}
+          onClick={() => window.location.reload()}>
+          Reintentar
+        </button>
+      </div>
+    </div>
+  )
+
+  if (!capacidad.lista) return (
+    <div className="pantallaEstado"><p>Abriendo tu mesa...</p></div>
   )
 
   return children
