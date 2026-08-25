@@ -155,6 +155,49 @@ service cloud.firestore {
         && get(refInvitacion(localId, miEmail())).data.rol == rol;
     }
 
+    // -- PLATA: QUE PUEDE ESCRIBIR CADA UNO -------------------
+    // El precio de un producto y el total de una mesa los decide el
+    // servidor, no el navegador. Antes el cliente mandaba el pedido con
+    // los precios que tenia en memoria y escribia el total acumulado:
+    // un cliente modificado podia pedirse todo a cero. Ahora los pedidos
+    // los escribe solo el backend (Admin SDK, que no pasa por estas
+    // reglas) y aca se cierra la puerta de adelante.
+
+    function camposTocados() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Lo unico que el comensal decide por su cuenta en la mesa: quien
+    // esta sentado y que quiere pedir. La plata, no.
+    function soloCamposDeMesaDelComensal() {
+      return camposTocados().hasOnly(['clientes', 'dispositivos', 'personas', 'carrito']);
+    }
+
+    // El carrito es un borrador: guarda que producto y cuantos, sin
+    // precio. El precio lo pone el servidor al confirmar.
+    function carritoRazonable() {
+      return !('carrito' in request.resource.data)
+        || (request.resource.data.carrito is list
+            && request.resource.data.carrito.size() <= 50);
+    }
+
+    // Una mesa recien abierta nace en cero. Sin esto, el comensal podia
+    // sentarse con un total ya puesto a mano.
+    // Sentarse en una mesa que estaba libre. Es la unica vez que el
+    // comensal escribe el estado de la mesa, y solo para ocuparla.
+    function comensalAbreLaMesa() {
+      return resource.data.estado == 'libre' && mesaNaceLimpia();
+    }
+
+    function mesaNaceLimpia() {
+      return request.resource.data.estado == 'ocupada'
+        && request.resource.data.total_acumulado == 0
+        && request.resource.data.propina == 0
+        && request.resource.data.carrito_bloqueado == false
+        && request.resource.data.carrito.size() == 0
+        && request.resource.data.metodo_pago == null;
+    }
+
     // -- EL LOCAL ---------------------------------------------
     match /locales/{localId} {
 
@@ -209,14 +252,42 @@ service cloud.firestore {
       // Operar una mesa es del comensal sentado en ella y del personal
       // del local. La plataforma lee para dar soporte y nada mas.
       match /mesas/{mesaId} {
-        allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
-        allow create, update: if esComensal(localId, mesaId) || esPersonal(localId);
-        allow delete:         if esEncargado(localId);
+        allow read: if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
 
+        // Abrir la mesa la sigue abriendo quien se sienta, pero nace en
+        // cero y con el carrito vacio.
+        allow create: if (esComensal(localId, mesaId) && mesaNaceLimpia() && carritoRazonable())
+          || esPersonal(localId);
+
+        // El comensal solo mueve su carrito y quienes estan en la mesa.
+        // El total, la propina, el metodo de pago y el estado de la mesa
+        // los escribe el backend al confirmar un pedido o pedir la cuenta.
+        //
+        // El personal todavia puede tocar los campos de caja: el cierre
+        // de mesa sigue siendo del lado del cliente (queda abierto en
+        // AUD-005). La diferencia importa: el negocio administra su
+        // propia caja, el comensal no.
+        allow update: if (esComensal(localId, mesaId)
+              && carritoRazonable()
+              && (soloCamposDeMesaDelComensal() || comensalAbreLaMesa()))
+          || esPersonal(localId);
+
+        allow delete: if esEncargado(localId);
+
+        // -- PEDIDOS: SOLO LOS ESCRIBE EL BACKEND -------------
+        // Crear un pedido, cambiarle el estado a un renglon, cancelarlo
+        // o marcarlo entregado pasan por Cloud Functions, que leen el
+        // precio de la carta y ajustan el total en transaccion. El
+        // Admin SDK no pasa por estas reglas, asi que negar aca no le
+        // saca nada al negocio y le saca todo a un cliente modificado.
+        //
+        // Borrar sigue habilitado para el personal porque de eso depende
+        // liberar la mesa al cerrarla, que todavia corre en el navegador.
         match /pedidos/{pedidoId} {
-          allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
-          allow create, update: if esComensal(localId, mesaId) || esPersonal(localId);
-          allow delete:         if esPersonal(localId);
+          allow read:   if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
+          allow create: if false;
+          allow update: if false;
+          allow delete: if esPersonal(localId);
         }
 
         match /mensajes/{mensajeId} {

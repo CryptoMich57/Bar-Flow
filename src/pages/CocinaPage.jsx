@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { onSnapshot, updateDoc, query, orderBy, getDoc, getDocs } from 'firebase/firestore'
+import { onSnapshot, query, orderBy, getDocs } from 'firebase/firestore'
+import { llamarBackend } from '../firebase/funciones'
 import { getCopyright } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
-import { colPedidos, refPedido, colHistorial } from '../firebase/rutas'
+import { colPedidos, colHistorial } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
@@ -46,7 +47,10 @@ export default function CocinaPage() {
         const pedidos = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(p => p.estado !== 'entregado')
-          .map(p => ({ ...p, items: (p.items || []).filter(i => i.destino === 'cocina') }))
+          .map(p => ({
+            ...p,
+            items: (p.items || []).filter(i => i.destino === 'cocina'),
+          }))
           .filter(p => p.items.length > 0)
         setPedidosPorMesa(prev => ({ ...prev, [num]: pedidos }))
       })
@@ -111,21 +115,17 @@ export default function CocinaPage() {
   }, [pedidosPorMesa, notif])
 
   // ── Cambiar estado ítem ──────────────────────────────────────────────────────
-  const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = refPedido(localId, mesaId, pedidoId)
-    const snap = await getDoc(pedidoRef)
-    if (!snap.exists()) return
-    const dataCompleta = snap.data()
-    let cocinarIdx = -1, count = 0
-    dataCompleta.items.forEach((item, i) => {
-      if (item.destino === 'cocina') { if (count === itemIdx) cocinarIdx = i; count++ }
-    })
-    if (cocinarIdx === -1) return
-    const itemsActualizados = dataCompleta.items.map((item, i) =>
-      i === cocinarIdx ? { ...item, estado: nuevoEstado } : item
-    )
-    const todoListo = itemsActualizados.every(i => i.estado === 'listo' || i.estado === 'entregado')
-    await updateDoc(pedidoRef, { items: itemsActualizados, estado: todoListo ? 'listo' : 'en_preparacion' })
+  // El estado lo cambia el backend en transaccion: antes cocina leia el
+  // pedido entero y lo reescribia completo, y si el mozo tocaba otro
+  // renglon al mismo tiempo, uno de los dos cambios se perdia.
+  const cambiarEstadoItem = async (mesaId, pedidoId, rid, nuevoEstado) => {
+    try {
+      await llamarBackend('cambiarEstadoItem', {
+        localId, mesaId, pedidoId, rid, estado: nuevoEstado,
+      })
+    } catch (e) {
+      notif(`No se pudo actualizar: ${e.message}`, 'Red', 5000)
+    }
   }
 
   const todosPedidos = Object.entries(pedidosPorMesa)
@@ -261,8 +261,8 @@ function PedidoCard({ pedido, onCambiar, esNuevo = false , soloLectura }) {
           {pedido.created_at?.toDate?.()?.toLocaleTimeString?.('es-AR', { hour:'2-digit', minute:'2-digit' }) || ''}
         </span>
       </div>
-      {pedido.items.map((item, idx) => (
-        <div key={idx} className={styles.itemRow}>
+      {pedido.items.map((item) => (
+        <div key={item.rid} className={styles.itemRow}>
           <div className={styles.itemLeft}>
             <span className={styles.cantidad}>{item.cantidad}×</span>
             <div className={styles.itemInfo}>
@@ -275,11 +275,11 @@ function PedidoCard({ pedido, onCambiar, esNuevo = false , soloLectura }) {
           ) : (
             <div className={styles.itemBtns}>
               <button className={`${styles.btn} ${item.estado==='pendiente'?styles.btnRed:''}`}
-                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'pendiente')}>⏳</button>
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, item.rid, 'pendiente')}>⏳</button>
               <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
-                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'en_preparacion')}>🔥</button>
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, item.rid, 'en_preparacion')}>🔥</button>
               <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
-                onClick={() => onCambiar(pedido.mesaId, pedido.id, idx, 'listo')}>✅</button>
+                onClick={() => onCambiar(pedido.mesaId, pedido.id, item.rid, 'listo')}>✅</button>
             </div>
           )}
         </div>

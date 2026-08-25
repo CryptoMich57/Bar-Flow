@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { suscribirPedidos, suscribirMensajes, enviarMensaje, liberarMesa } from '../firebase/mesa'
+import { llamarBackend } from '../firebase/funciones'
 import {
   onSnapshot, updateDoc, query, orderBy,
   getDocs, writeBatch, serverTimestamp, addDoc,
@@ -8,7 +9,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import {
-  refMesa, colPedidos, refPedido, colLlamadas, refLlamada,
+  refMesa, colPedidos, colLlamadas, refLlamada,
   colCarta, refItemCarta, colHistorial, refHistorial,
 } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
@@ -153,7 +154,10 @@ export default function EncargadoPage() {
         const barra = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(p => p.estado !== 'entregado')
-          .map(p => ({ ...p, items: (p.items || []).filter(i => i.destino === 'encargado') }))
+          .map(p => ({
+            ...p,
+            items: (p.items || []).filter(i => i.destino === 'encargado'),
+          }))
           .filter(p => p.items.length > 0)
         setPedidosBarra(prev => ({ ...prev, [num]: barra }))
       })
@@ -262,47 +266,40 @@ export default function EncargadoPage() {
   }, [localId, tab])
 
   // ── Pedidos ──────────────────────────────────────────────────────────────────
-  const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = refPedido(localId, mesaId, pedidoId)
-    const pedido = pedidos.find(p => p.id === pedidoId)
-    if (!pedido) return
-    const items = pedido.items.map((item, i) => i === itemIdx ? { ...item, estado: nuevoEstado } : item)
-    const todoListo = items.every(i => i.estado === 'listo' || i.estado === 'entregado')
-    await updateDoc(pedidoRef, { items, estado: todoListo ? 'listo' : 'en_preparacion' })
+  // Los tres pasan por el backend. El renglon viaja por su identificador
+  // estable (rid), no por su posicion: si mientras tanto se cancela otro,
+  // la posicion apuntaria a un producto distinto. Y el backend relee en
+  // transaccion, asi dos personas sobre la misma comanda no se pisan.
+  const cambiarEstadoItem = async (mesaId, pedidoId, rid, nuevoEstado) => {
+    try {
+      await llamarBackend('cambiarEstadoItem', {
+        localId, mesaId, pedidoId, rid, estado: nuevoEstado,
+      })
+    } catch (e) {
+      notif(`No se pudo actualizar: ${e.message}`, 'Red', 5000)
+    }
   }
 
-  // Cambia el estado de un item de barra. El indice que llega es el de la lista
-  // ya filtrada por destino, asi que hay que mapearlo al indice real del pedido.
-  const cambiarEstadoItemBarra = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = refPedido(localId, mesaId, pedidoId)
-    const snap = await getDoc(pedidoRef)
-    if (!snap.exists()) return
-    const data = snap.data()
-    let realIdx = -1, count = 0
-    data.items.forEach((item, i) => {
-      if (item.destino === 'encargado') { if (count === itemIdx) realIdx = i; count++ }
-    })
-    if (realIdx === -1) return
-    const items = data.items.map((item, i) => i === realIdx ? { ...item, estado: nuevoEstado } : item)
-    const todoListo = items.every(i => i.estado === 'listo' || i.estado === 'entregado')
-    await updateDoc(pedidoRef, { items, estado: todoListo ? 'listo' : 'en_preparacion' })
-  }
+  // La barra usa la misma funcion: el renglon ya viaja con su rid.
+  const cambiarEstadoItemBarra = cambiarEstadoItem
 
   const marcarPedidoEntregado = async (mesaId, pedidoId) => {
-    await updateDoc(refPedido(localId, mesaId, pedidoId), { estado: 'entregado' })
+    try {
+      await llamarBackend('marcarPedidoEntregado', { localId, mesaId, pedidoId })
+    } catch (e) {
+      notif(`No se pudo marcar entregado: ${e.message}`, 'Red', 5000)
+    }
   }
 
-  const cancelarItem = async (mesaId, pedidoId, itemIdx) => {
-    const pedidoRef = refPedido(localId, mesaId, pedidoId)
-    const pedido = pedidos.find(p => p.id === pedidoId)
-    if (!pedido) return
-    const items = pedido.items.filter((_, i) => i !== itemIdx)
-    const nuevoTotal = items.reduce((a, i) => a + i.precio * i.cantidad, 0)
-    await updateDoc(pedidoRef, { items, total: nuevoTotal })
-    const diff = pedido.items[itemIdx].precio * pedido.items[itemIdx].cantidad
-    await updateDoc(refMesa(localId, mesaId), {
-      total_acumulado: Math.max(0, (mesas[mesaId]?.total_acumulado || 0) - diff)
-    })
+  // Cancelar descuenta de la cuenta de la mesa. Antes eran dos escrituras
+  // sueltas y el descuento salia del total que tenia el navegador en
+  // pantalla, que podia estar viejo; ahora es una sola transaccion.
+  const cancelarItem = async (mesaId, pedidoId, rid) => {
+    try {
+      await llamarBackend('cancelarItem', { localId, mesaId, pedidoId, rid })
+    } catch (e) {
+      notif(`No se pudo cancelar: ${e.message}`, 'Red', 5000)
+    }
   }
 
   // ── Confirmar pago y liberar mesa ────────────────────────────────────────────
@@ -690,7 +687,7 @@ export default function EncargadoPage() {
                           {['pendiente','en_preparacion','listo'].map(e => (
                             <button key={e}
                               className={`${styles.estadoBtn} ${item.estado===e?styles.estadoBtnActivo:''}`}
-                              onClick={() => cambiarEstadoItemBarra(p.mesaId, p.id, ii, e)}>
+                              onClick={() => cambiarEstadoItemBarra(p.mesaId, p.id, item.rid, e)}>
                               {e==='pendiente'?'⏳':e==='en_preparacion'?'🔥':'✅'}
                             </button>
                           ))}

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { onSnapshot, updateDoc, query, orderBy, getDoc, addDoc, serverTimestamp } from 'firebase/firestore'
+import { onSnapshot, updateDoc, query, orderBy } from 'firebase/firestore'
+import { llamarBackend } from '../firebase/funciones'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
 import { suscribirCarta, agregarPedidoExtra } from '../firebase/mesa'
-import { refMesa, colPedidos, refPedido, colLlamadas, refLlamada } from '../firebase/rutas'
+import { refMesa, colPedidos, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
@@ -101,10 +102,6 @@ export default function MozoPage() {
     ? ficha.mesas_asignadas.map(String)
     : NUMS_MESAS_ACTUAL
 
-  // Quien firma el pedido. Antes era el id de una lista editable, que no
-  // identificaba a nadie de verdad; ahora es el uid de la cuenta.
-  const firmaDelMozo = ficha?.uid ? `empleado_${ficha.uid}` : 'empleado_desconocido'
-
   // ── Sonidos + notificaciones al detectar cambios ─────────────────────────────
   useEffect(() => {
     // Pedidos listos nuevos
@@ -189,22 +186,23 @@ export default function MozoPage() {
 
   // ── Acciones ──────────────────────────────────────────────────────────────────
   const marcarEntregado = async (mesaId, pedidoId) => {
-    await updateDoc(refPedido(localId, mesaId, pedidoId), { estado: 'entregado' })
+    try {
+      await llamarBackend('marcarPedidoEntregado', { localId, mesaId, pedidoId })
+    } catch (e) {
+      notif(`No se pudo marcar entregado: ${e.message}`, 'Red', 5000)
+    }
   }
 
-  const cambiarEstadoItem = async (mesaId, pedidoId, itemIdx, nuevoEstado) => {
-    const pedidoRef = refPedido(localId, mesaId, pedidoId)
-    const snap = await getDoc(pedidoRef)
-    if (!snap.exists()) return
-    const data = snap.data()
-    let mozoIdx = -1, count = 0
-    data.items.forEach((item, i) => {
-      if (item.destino === 'mozo') { if (count === itemIdx) mozoIdx = i; count++ }
-    })
-    if (mozoIdx === -1) return
-    const items = data.items.map((item, i) => i === mozoIdx ? { ...item, estado: nuevoEstado } : item)
-    const todoListo = items.every(i => i.estado === 'listo' || i.estado === 'entregado')
-    await updateDoc(pedidoRef, { items, estado: todoListo ? 'listo' : 'en_preparacion' })
+  // Igual que en cocina: lo resuelve el backend en transaccion para que
+  // dos personas sobre la misma comanda no se pisen.
+  const cambiarEstadoItem = async (mesaId, pedidoId, rid, nuevoEstado) => {
+    try {
+      await llamarBackend('cambiarEstadoItem', {
+        localId, mesaId, pedidoId, rid, estado: nuevoEstado,
+      })
+    } catch (e) {
+      notif(`No se pudo actualizar: ${e.message}`, 'Red', 5000)
+    }
   }
 
   const resolverLlamada = async (mesaId, llamadaId) => {
@@ -236,29 +234,17 @@ export default function MozoPage() {
     if (!mesaPedido || carritoMozo.length === 0) return
     setCargando(true)
     try {
-      const mesa = mesas[mesaPedido]
-      if (mesa?.carrito_bloqueado) {
-        await agregarPedidoExtra(localId, mesaPedido, carritoMozo, firmaDelMozo)
-      } else {
-        // Cargar directo como pedido confirmado
-        const total = carritoMozo.reduce((a, i) => a + i.precio * i.cantidad, 0)
-        await addDoc(colPedidos(localId, mesaPedido), {
-          items: carritoMozo,
-          estado: 'pendiente',
-          confirmado_por: firmaDelMozo,
-          total,
-          created_at: serverTimestamp(),
-        })
-        await updateDoc(refMesa(localId, mesaPedido), {
-          carrito_bloqueado: true,
-          total_acumulado: (mesa?.total_acumulado || 0) + total,
-          estado: 'esperando_preparacion',
-        })
-      }
+      // Un solo camino: el backend arma el pedido con los precios de la
+      // carta y ajusta el total de la mesa en la misma transaccion. Antes
+      // eran dos escrituras sueltas y un corte en el medio dejaba el
+      // pedido cargado sin sumar a la cuenta.
+      await agregarPedidoExtra(localId, mesaPedido, carritoMozo)
       setCarritoMozo([])
       setMesaPedido(null)
       setTab('alertas')
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      notif(`No se pudo enviar el pedido: ${e.message}`, 'Red', 6000)
+    }
     setCargando(false)
   }
 
@@ -374,8 +360,10 @@ export default function MozoPage() {
                         <span className={styles.mesaTag}>Mesa {p.mesaId}</span>
                         {personasDe(p.mesaId)}
                       </div>
-                      {p.items.filter(i => i.destino==='mozo').map((item, idx) => (
-                        <div key={idx} className={styles.itemRow}>
+                      {p.items
+                        
+                        .filter(i => i.destino==='mozo').map((item) => (
+                        <div key={item.rid} className={styles.itemRow}>
                           <div className={styles.itemLeft}>
                             <span className={styles.cantidad}>{item.cantidad}×</span>
                             <span>{item.nombre}</span>
@@ -385,9 +373,9 @@ export default function MozoPage() {
                           ) : (
                             <div className={styles.itemBtns}>
                               <button className={`${styles.btn} ${item.estado==='en_preparacion'?styles.btnYellow:''}`}
-                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'en_preparacion')}>🔥</button>
+                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, item.rid, 'en_preparacion')}>🔥</button>
                               <button className={`${styles.btn} ${item.estado==='listo'?styles.btnGreen:''}`}
-                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, idx, 'listo')}>✅</button>
+                                onClick={() => cambiarEstadoItem(p.mesaId, p.id, item.rid, 'listo')}>✅</button>
                             </div>
                           )}
                         </div>

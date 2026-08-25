@@ -177,7 +177,7 @@ export default function MesaPage() {
       setCarritoLocal(prev => {
         const existe = prev.find(i => i.id === item.id)
         if (existe) return prev.map(i => i.id === item.id ? { ...i, cantidad: i.cantidad + 1 } : i)
-        return [...prev, { ...item, cantidad: 1, nota }]
+        return [...prev, { id: item.id, cantidad: 1, nota }]
       })
     } else {
       try { await agregarAlCarrito(localId, mesaId, { ...item, nota }) }
@@ -200,8 +200,22 @@ export default function MesaPage() {
     return mesa?.carrito?.find(i => i.id === itemId)?.cantidad || 0
   }
 
-  const carrito = esCarritoBloqueado ? carritoLocal : (mesa?.carrito || [])
+  // El carrito guarda solo que producto y cuantos. El nombre y el precio
+  // se resuelven contra la carta vigente al dibujar: lo que se cobra lo
+  // calcula el servidor, esto es lo que la persona ve mientras elige.
+  const resolverRenglon = (renglon) => {
+    const enCarta = carta.find(c => c.id === renglon.id)
+    return {
+      ...renglon,
+      nombre: enCarta?.nombre || 'Ya no esta en la carta',
+      precio: enCarta?.precio ?? 0,
+      enCarta: !!enCarta,
+    }
+  }
+
+  const carrito = (esCarritoBloqueado ? carritoLocal : (mesa?.carrito || [])).map(resolverRenglon)
   const totalCarrito = carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
+  const hayFueraDeCarta = carrito.some(i => !i.enCarta)
 
   const handleConfirmar = async () => {
     setCargando(true); setError(null)
@@ -210,10 +224,10 @@ export default function MesaPage() {
       if (esCarritoBloqueado) {
         if (carritoLocal.length === 0) { setCargando(false); return }
         const itemsConNotas = carritoLocal.map(i => ({ ...i, nota: notasPorItem[i.id] || i.nota || '' }))
-        await agregarPedidoExtra(localId, mesaId, itemsConNotas, dispositivoId)
+        await agregarPedidoExtra(localId, mesaId, itemsConNotas)
         setCarritoLocal([])
       } else {
-        await confirmarPedido(localId, mesaId, dispositivoId)
+        await confirmarPedido(localId, mesaId)
       }
       setNotasPorItem({})
     } catch (e) { setError(e.message) }
@@ -423,8 +437,14 @@ export default function MesaPage() {
                 <span>Total</span>
                 <span>${totalCarrito.toLocaleString()}</span>
               </div>
+              {hayFueraDeCarta && (
+                <p className={styles.errorMsg}>
+                  Hay algo que el bar dejo de ofrecer mientras elegias. Sacalo del pedido para continuar.
+                </p>
+              )}
               {error && <p className={styles.errorMsg}>{error}</p>}
-              <button className="btn btn-gold" style={{width:'100%',marginTop:10}} onClick={handleConfirmar} disabled={cargando}>
+              <button className="btn btn-gold" style={{width:'100%',marginTop:10}}
+                onClick={handleConfirmar} disabled={cargando || hayFueraDeCarta}>
                 {cargando ? 'Enviando...' : '✅ Confirmar pedido'}
               </button>
             </div>
