@@ -9,12 +9,31 @@
 import {
   getDoc, setDoc, updateDoc, onSnapshot,
   addDoc, serverTimestamp, runTransaction,
-  query, orderBy, writeBatch, getDocs, doc,
+  query, orderBy, writeBatch, getDocs,
 } from 'firebase/firestore'
 import { db } from './config'
 import {
   refMesa, colPedidos, colMensajes, colLlamadas, colCarta,
 } from './rutas'
+import { llamarBackend } from './funciones'
+
+// Cada confirmacion lleva una clave propia. Si el celular pierde senal
+// justo despues de que el backend escribio pero antes de que llegue la
+// respuesta, la app reintenta: sin clave eso cargaba el pedido dos veces
+// y le cobraba de mas al cliente. Con clave, el reintento cae en el mismo
+// documento y el backend devuelve lo que ya habia guardado.
+const nuevaClave = () => (
+  crypto.randomUUID?.() || `p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+).replace(/[^A-Za-z0-9_-]/g, '')
+
+// El carrito guarda un borrador, no plata: que producto y cuantos.
+// El precio lo pone el servidor al confirmar, leyendo la carta vigente.
+// Si lo guardara el navegador, seria el navegador el que fija el precio.
+const aRenglon = (item, cantidad = 1) => ({
+  id: item.id,
+  cantidad,
+  nota: item.nota || '',
+})
 
 export const suscribirMesa = (localId, mesaId, callback) => {
   return onSnapshot(refMesa(localId, mesaId), (snap) => {
@@ -61,8 +80,10 @@ export const agregarAlCarrito = async (localId, mesaId, item) => {
     const carrito = data.carrito || []
     const existe = carrito.find(i => i.id === item.id)
     const nuevoCarrito = existe
-      ? carrito.map(i => i.id === item.id ? { ...i, cantidad: i.cantidad + 1 } : i)
-      : [...carrito, { ...item, cantidad: 1 }]
+      ? carrito.map(i => i.id === item.id
+          ? { ...i, cantidad: i.cantidad + 1, nota: item.nota || i.nota || '' }
+          : i)
+      : [...carrito, aRenglon(item)]
     transaction.update(ref, { carrito: nuevoCarrito })
   })
 }
@@ -80,53 +101,21 @@ export const quitarDelCarrito = async (localId, mesaId, itemId) => {
   })
 }
 
-export const confirmarPedido = async (localId, mesaId, dispositivoId) => {
-  const ref = refMesa(localId, mesaId)
-  await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref)
-    if (!snap.exists()) throw new Error('Mesa no existe')
-    const data = snap.data()
-    if (data.carrito_bloqueado) throw new Error('Ya fue confirmado')
-    if (!data.carrito || data.carrito.length === 0) throw new Error('Carrito vacío')
-    const total = data.carrito.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
-    const pedidoRef = doc(colPedidos(localId, mesaId))
-    transaction.set(pedidoRef, {
-      items: data.carrito.map(i => ({
-        ...i,
-        estado: 'pendiente',
-        nota: i.nota || ''
-      })),
-      estado: 'pendiente',
-      confirmado_por: dispositivoId,
-      total,
-      created_at: serverTimestamp(),
-    })
-    transaction.update(ref, {
-      carrito_bloqueado: true,
-      total_acumulado: (data.total_acumulado || 0) + total,
-      estado: 'esperando_preparacion',
-      carrito: []
-    })
-  })
+// Confirmar el pedido ya no calcula nada en el navegador: le avisa al
+// backend, que lee el carrito guardado en la mesa, le pone precio con
+// la carta vigente y suma el total en la misma transaccion.
+export const confirmarPedido = async (localId, mesaId) => {
+  return llamarBackend('crearPedido', { localId, mesaId, clave: nuevaClave() })
 }
 
-export const agregarPedidoExtra = async (localId, mesaId, items, dispositivoId) => {
-  const total = items.reduce((acc, i) => acc + i.precio * i.cantidad, 0)
-  const ref = refMesa(localId, mesaId)
-  const pedidoRef = doc(colPedidos(localId, mesaId))
-  await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(ref)
-    const data = snap.data()
-    transaction.set(pedidoRef, {
-      items: items.map(i => ({ ...i, estado: 'pendiente' })),
-      estado: 'pendiente',
-      confirmado_por: dispositivoId,
-      total,
-      created_at: serverTimestamp(),
-    })
-    transaction.update(ref, {
-      total_acumulado: (data.total_acumulado || 0) + total
-    })
+// Agregar a una mesa que ya confirmo: se mandan los renglones, nunca
+// los importes.
+export const agregarPedidoExtra = async (localId, mesaId, items) => {
+  return llamarBackend('crearPedido', {
+    clave: nuevaClave(),
+    localId,
+    mesaId,
+    items: (items || []).map(i => aRenglon(i, i.cantidad)),
   })
 }
 
@@ -137,13 +126,10 @@ export const suscribirPedidos = (localId, mesaId, callback) => {
   })
 }
 
+// La propina y el metodo de pago terminan en el cierre de caja, asi que
+// los valida el backend antes de escribirlos.
 export const pedirCuenta = async (localId, mesaId, metodoPago, propina, abonaCon = null) => {
-  await updateDoc(refMesa(localId, mesaId), {
-    estado: 'esperando_cuenta',
-    metodo_pago: metodoPago,
-    propina: propina || 0,
-    abona_con: abonaCon,
-  })
+  return llamarBackend('pedirCuenta', { localId, mesaId, metodoPago, propina, abonaCon })
 }
 
 // Liberar mesa completamente - borra subcolecciones
