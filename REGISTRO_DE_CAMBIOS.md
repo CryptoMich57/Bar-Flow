@@ -17,6 +17,46 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Precios en el servidor y concurrencia (AUD-002, AUD-009)
+
+- **IDs:** `AUD-002` (Resuelto, sin desplegar), `AUD-009` (Resuelto, sin desplegar).
+  `AUD-005` sigue Pendiente y se acotó qué le falta.
+- **Archivos:** `functions/index.js`, `src/firebase/funciones.js` (nuevo),
+  `src/firebase/mesa.js`, `src/firebase/config.js`, `firestore.rules`,
+  `tests/funciones.test.js` (nuevo), `tests/reglas.test.js`, `package.json`, `.env.example`,
+  las cuatro vistas.
+- **Procedencia:** el grueso lo escribió otra sesión de Claude que ya no interviene sobre
+  esta carpeta. Se revisó, corrigió y probó antes de darlo por bueno.
+- **Cambio:** el cálculo del dinero pasó al servidor —el cliente manda qué y cuánto, nunca a
+  qué precio— y los cambios de estado pasan por transacción. Sobre eso se agregaron los tres
+  puntos que faltaban:
+
+  **Idempotencia:** cada confirmación lleva clave propia y el pedido se guarda con ese id. Sin
+  eso, un celular que perdía señal después de que el backend escribió reintentaba y **cobraba
+  dos veces**. La verificación va dentro de la transacción, no sólo antes: dos reintentos en
+  paralelo llegan hasta ahí.
+
+  **Identificador estable de renglón:** las funciones recibían la *posición* en el array.
+  Aunque la transacción evite pisarse, si se cancela el renglón 0 mientras otro marca listo el
+  1, el "1" ya es otro producto: la transacción aplicaba el cambio prolijamente al plato
+  equivocado. Ahora cada renglón lleva `rid` y se busca por ahí.
+
+  **Roles por puesto:** alcanzaba con "ser personal", y eso le daba a cocina cargar pedidos,
+  pedir la cuenta y dar comandas por entregadas. Ahora hay una tabla en un solo lugar.
+- **Validación:** `npx eslint .` 0 errores; **reglas 37/37**; **funciones 20/20** (suite nueva,
+  llamando por HTTP como la app); `npm run build` correcto; y **E2E completo del pedido en el
+  navegador contra los emuladores**: se abrió la mesa, se pidió, y el servidor escribió
+  `2× Tostado @1800 = 3600` con precio y destino de la carta, `rid` estable y el total de la
+  mesa en la misma transacción; después se pidió la cuenta con propina del 10%.
+  Para eso se agregó `VITE_USAR_EMULADORES`, que sólo funciona en builds de desarrollo.
+- **Pendiente / riesgos:** **nada de esto está desplegado, y no se debe desplegar por
+  partes.** Las reglas nuevas bloquean la escritura directa de pedidos: publicarlas sin las
+  funciones deja al bar sin poder tomar un pedido. Orden: Functions → cliente → prueba →
+  reglas. Además: los importes son enteros y no hay redondeo explícito; no hay límite de
+  pedidos por mesa ni por minuto; y si dos personas cambian **el mismo** renglón a la vez,
+  gana la última sin avisarle a la otra.
+
+
 ### 2026-08-24 — Claude — Capacidad de mesa: el comensal solo opera la suya (AUD-001)
 
 - **IDs:** `AUD-001` (Resuelto, **sin desplegar**). Residuo de `AUD-014` cerrado en el mismo

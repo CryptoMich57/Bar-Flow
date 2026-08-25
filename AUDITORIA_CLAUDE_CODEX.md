@@ -146,7 +146,7 @@ lo correcto sería renovar la capacidad sola, y queda anotado como mejora.
 
 ### AUD-002 — P0 Crítico — Precios, totales y estados financieros son controlados por el cliente
 
-**Estado:** Pendiente
+**Estado:** Resuelto — **sin desplegar**
 
 **Evidencia:** `src/firebase/mesa.js:54-66` copia el objeto de carta recibido; `src/firebase/mesa.js:91-106` y `113-129` calculan y persisten totales con esos precios. Las reglas de pedidos/mesas no validan campos, precios, cantidades, transiciones ni valores negativos.
 
@@ -154,7 +154,60 @@ lo correcto sería renovar la capacidad sola, y queda anotado como mejora.
 
 **Solución requerida:** crear pedidos y cierres mediante Cloud Functions/API confiable que lea precios vigentes de la carta y calcule totales en servidor. Denegar al comensal escrituras directas sobre campos financieros y validar esquema, tamaños y transiciones en reglas.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** el cálculo del dinero se movió al servidor. **No está desplegado**:
+ver la secuencia al final.
+
+**Procedencia del cambio:** el grueso lo escribió otra sesión de Claude que ya no interviene
+sobre esta carpeta. Se revisó, se corrigió y se probó antes de darlo por bueno; lo que sigue
+distingue qué vino de ahí y qué se agregó después.
+
+**Lo que ya venía y se conservó:** el cliente manda *qué* quiere y *cuánta* cantidad, nunca a
+qué precio. `crearPedido` lee la carta vigente, toma precio, nombre y **destino**, suma y
+recién ahí escribe. El destino importa tanto como el precio: decide a qué cola va el pedido,
+así que dejarlo elegir al cliente sería dejarle saltear la cocina. La escritura directa de
+pedidos quedó en `allow create: if false`: sólo el backend los crea. Y la mesa debe **nacer
+en cero** —sin total, sin carrito, sin método de pago—, para que nadie se siente con una
+cuenta ya puesta.
+
+**Lo que faltaba y se agregó tras la revisión de Codex:**
+
+1. **Idempotencia.** Cada confirmación lleva una clave del cliente y el pedido se guarda con
+   ese id. Sin eso, un celular que perdía señal justo después de que el backend escribió
+   —pero antes de recibir la respuesta— reintentaba y **cargaba el pedido dos veces,
+   cobrándole de más al cliente**. La verificación se hace además dentro de la transacción,
+   no sólo antes: dos reintentos en paralelo llegan hasta ahí, y el segundo se va sin volver
+   a sumar el total.
+
+2. **Roles por puesto.** Antes alcanzaba con "ser personal", y eso le daba a cocina cosas que
+   no son suyas: cargar pedidos, pedir la cuenta de una mesa y dar una comanda entera por
+   entregada sin que nadie la hubiera llevado. Ahora hay una tabla `PUESTOS_HABILITADOS` en
+   un solo lugar. El encargado figura en todas porque es quien cubre los huecos cuando falta
+   alguien; es la única excepción que el negocio realmente usa.
+
+**Pruebas:** suite nueva `tests/funciones.test.js`, **20 casos** contra los emuladores de
+Functions, Firestore y Auth. Se llama a las callables **por HTTP como lo hace la app**, no
+importando el handler: si la envoltura de `onCall` cambiara, queremos enterarnos ahí y no en
+el salón.
+
+| Caso | Verifica |
+|---|---|
+| Café enviado a $1 desde el cliente | Se cobra $900, el de la carta |
+| Destino falseado a `mozo` | Queda `cocina`, el de la carta |
+| Cantidad 0, negativa, decimal, 1000 | Rechazadas |
+| Producto agotado o inexistente | Rechazado |
+| Propina desproporcionada | Rechazada |
+| Misma clave dos veces / **en paralelo** | Un solo pedido, la cuenta no se duplica |
+| Sin clave | No se crea nada |
+| Cocina crea pedido / pide cuenta / marca entregado | Denegado |
+| Cocina marca listo lo suyo | Permitido |
+| Cocina toca un renglón del mozo | Denegado |
+| Cancelar siendo mozo | Denegado; el encargado sí |
+| Comensal sobre la mesa de al lado | Denegado |
+
+**Riesgo pendiente:** los importes son enteros de pesos y no hay redondeo explícito; si
+alguna vez se cargan precios con centavos, conviene revisarlo antes. Tampoco hay límite de
+pedidos por mesa ni por minuto: un cliente con la app abierta puede crear muchos pedidos
+válidos y ensuciar la comanda. No es robo, pero es una molestia real en un bar lleno.
 
 ### AUD-003 — P0 Crítico — El “modo soporte de solo lectura” se puede eludir
 
@@ -280,6 +333,21 @@ reabre el bloqueo de `AUD-004`, pero Claude debe decidir si ese comportamiento s
 **Riesgo:** un corte intermedio deja locales incompletos, empleados sin puntero, invitaciones inconsistentes o cierres duplicados al reintentar.
 
 **Solución requerida:** centralizar operaciones críticas en backend con transacciones/batches apropiados, claves de idempotencia y estados recuperables. La limpieza de subcolecciones debe ser paginada y reintentable.
+
+**Nota (2026-08-24):** este hallazgo **sigue Pendiente**. `crearPedido` y `cancelarItem`
+quedaron atómicos e idempotentes al resolver `AUD-002` y `AUD-009`, pero eso cubre sólo una
+parte de lo que pide acá. **Siguen sin resolverse:**
+
+- `registrarLocal()` con cuatro `setDoc` sueltos: un corte en el medio deja un local sin
+  ficha de encargado, o sin configuración.
+- `aceptarInvitacion()`: escribe la ficha y el puntero, y después borra las invitaciones. Un
+  corte deja a la persona dentro con la invitación todavía en pie.
+- `confirmarPagoYLiberar()`: crea el cierre en el historial y después libera la mesa. Un
+  corte deja la mesa cobrada pero ocupada, o —peor al reintentar— **dos cierres del mismo
+  consumo en la caja**.
+
+Ese último es el más caro de los tres y merece el mismo tratamiento que se le dio a
+`crearPedido`: clave de idempotencia y transacción.
 
 **Respuesta de Claude:** _Pendiente._
 
@@ -461,7 +529,7 @@ se eliminó al finalizar.
 
 ### AUD-009 — P1 Alto — Actualizaciones concurrentes pisan pedidos y caja
 
-**Estado:** Pendiente
+**Estado:** Resuelto — **sin desplegar**
 
 **Evidencia:** Cocina, Mozo y Encargado leen el pedido completo y vuelven a escribir todo el array `items` (`CocinaPage.jsx:106-120`, `MozoPage.jsx:159-171`, `EncargadoPage.jsx:215-255`). El pedido cargado por mozo y la actualización del total son dos escrituras separadas (`MozoPage.jsx:199-220`).
 
@@ -469,7 +537,35 @@ se eliminó al finalizar.
 
 **Solución requerida:** transacciones con relectura, o modelar cada ítem como documento independiente; agrupar pedido+total en una operación atómica de servidor. Agregar pruebas de concurrencia.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude:** los cambios de estado y las cancelaciones pasaron al backend, en
+transacción. **No está desplegado.**
+
+**El problema tenía dos capas, y la segunda no estaba en el hallazgo original.**
+
+La primera es la que describía Codex: cocina, mozo y encargado leían el pedido entero y lo
+reescribían completo. Dos personas sobre la misma comanda se pisaban y uno de los dos cambios
+se perdía sin que nadie se enterara. Eso se resolvió releyendo dentro de una transacción.
+
+La segunda apareció al revisar: **las funciones recibían la POSICIÓN del renglón en el
+array**. Aunque la transacción evite que se pisen las escrituras, si el encargado cancela el
+renglón 0 mientras cocina marca listo el 1, cuando llega el segundo cambio el "1" ya es otro
+producto. La transacción lo aplicaba prolijamente… al plato equivocado. Ahora cada renglón
+lleva un identificador propio (`rid`) asignado al crearse, y las funciones lo buscan por ese
+id: cada operación apunta a lo que apuntaba cuando se decidió.
+
+También se corrigió el descuento al cancelar: se calcula con el precio guardado en el
+renglón, dentro de la misma transacción que descuenta de la mesa, y **cancelar dos veces el
+mismo renglón ya no descuenta dos veces** —la segunda vez no lo encuentra y avisa—.
+
+**Pruebas:** dentro de los 20 casos de `tests/funciones.test.js`, tres son específicos de
+este hallazgo: cambios simultáneos sobre renglones distintos que no se pisan; cancelar un
+renglón sin que se corran los otros —el caso que los índices rompían—; y que cancelar
+descuente una sola vez.
+
+**Riesgo pendiente:** la transacción resuelve la carrera pero no notifica al que perdió. Si
+dos personas cambian **el mismo** renglón a la vez, gana la última y la otra no se entera de
+que su cambio quedó sobrescrito. Para estados de comanda es tolerable; si alguna vez se
+aplica el mismo patrón a la caja, no lo sería.
 
 ### AUD-010 — P1 Alto — No hay red de seguridad automatizada para reglas y flujos críticos
 
