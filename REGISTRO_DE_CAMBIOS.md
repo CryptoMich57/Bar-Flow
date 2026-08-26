@@ -17,6 +17,29 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Preparar el despliegue de Functions
+
+- **IDs:** soporte de `AUD-001` y `AUD-002` (siguen Resueltos, sin desplegar).
+- **Archivos:** `functions/index.js`, `functions/package.json`.
+- **Cambio:** el primer intento de `firebase deploy --only functions` falló con *"User code
+  failed to load. Cannot determine backend specification. Timeout after 10000"*. Las APIs de
+  Cloud Functions, Cloud Build y Artifact Registry **quedaron habilitadas** en ese intento.
+
+  Dos causas encadenadas. `firebase-functions` estaba en 6.6 y la CLI pedía 7.x; al
+  actualizar (y con `firebase-admin` 14), el módulo pasó a tardar **7,4 segundos** en cargar.
+  El descubrimiento del backend corta a los 10, así que quedaba al borde y en la máquina de
+  despliegue se pasaba.
+
+  El costo estaba en inicializar el Admin SDK al cargar el módulo. Ahora se inicializa
+  **perezosamente**, sólo cuando una función atiende un pedido de verdad. El módulo pasó de
+  7428 ms a **712 ms**. No es un detalle de estilo: para desplegar, la CLI carga el archivo y
+  le pregunta qué funciones exporta, con ese límite de 10 segundos.
+- **Validación:** `npm run test:funciones` **25/25** después del cambio.
+- **Pendiente / riesgos:** el despliegue en sí **no se ejecutó**: quedó bloqueado por los
+  permisos del entorno y lo corre el operador. La secuencia sigue siendo `functions` →
+  verificar → `firestore:rules` + `hosting`.
+
+
 ### 2026-08-24 — Claude — Idempotencia extremo a extremo (AUD-002)
 
 - **IDs:** `AUD-002` (Resuelto, sin desplegar).

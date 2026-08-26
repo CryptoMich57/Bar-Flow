@@ -17,16 +17,28 @@
 //  "el servidor me dio permiso para ESTA mesa, y vence". Eso no lo puede
 //  falsificar el cliente: el custom claim lo firma Firebase.
 // ============================================================
-import { initializeApp } from 'firebase-admin/app'
+import { initializeApp, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { setGlobalOptions } from 'firebase-functions/v2'
 
-initializeApp()
 setGlobalOptions({ region: 'southamerica-east1', maxInstances: 10 })
 
-const db = getFirestore()
+// El Admin SDK se inicializa PEREZOSAMENTE, no al cargar el modulo.
+//
+// No es un detalle de estilo: para desplegar, la CLI carga este archivo y le
+// pregunta que funciones exporta, con 10 segundos de limite. Inicializar
+// admin arriba se comia 7 de esos 10 segundos y el deploy fallaba con
+// "Cannot determine backend specification". Aca adentro solo corre cuando
+// una funcion realmente atiende un pedido.
+let appAdmin = null
+const admin = () => {
+  if (!appAdmin) appAdmin = getApps()[0] || initializeApp()
+  return appAdmin
+}
+const baseDeDatos = () => getFirestore(admin())
+const autenticacion = () => getAuth(admin())
 
 // Cuánto dura la capacidad. Una comida larga entra cómoda; una sesión
 // olvidada en un celular ajeno no sirve al día siguiente.
@@ -58,7 +70,7 @@ export const abrirMesa = onCall(async (req) => {
 
   // El local tiene que existir y estar atendiendo. Un local suspendido no
   // reparte capacidades: es la misma frontera que aplican las reglas.
-  const local = await db.doc(`locales/${localId}`).get()
+  const local = await baseDeDatos().doc(`locales/${localId}`).get()
   if (!local.exists) {
     throw new HttpsError('not-found', 'Ese local no existe.')
   }
@@ -69,7 +81,7 @@ export const abrirMesa = onCall(async (req) => {
 
   // Y la mesa tiene que ser una de las que el local declaró. Sin esto,
   // alguien podría pedir capacidad para la mesa 9999 y crear basura.
-  const config = await db.doc(`locales/${localId}/sistema/configuracion`).get()
+  const config = await baseDeDatos().doc(`locales/${localId}/sistema/configuracion`).get()
   const cantidad = config.data()?.mesas?.cantidad || MESAS_POR_DEFECTO
   const numero = Number(numeroMesa)
   if (numero < 1 || numero > cantidad) {
@@ -81,7 +93,7 @@ export const abrirMesa = onCall(async (req) => {
   // Se pisan los claims anteriores a propósito: una sesión vale para una
   // mesa a la vez. Si la persona se cambia de mesa, vuelve a pedir y la
   // anterior deja de servirle en el mismo acto.
-  await getAuth().setCustomUserClaims(req.auth.uid, {
+  await autenticacion().setCustomUserClaims(req.auth.uid, {
     mesa: { l: localId, m: `mesa_${numero}`, exp: vence },
   })
 
@@ -136,7 +148,7 @@ const exigirLocalYMesa = (data) => {
 }
 
 const exigirLocalAtendiendo = async (localId) => {
-  const local = await db.doc(`locales/${localId}`).get()
+  const local = await baseDeDatos().doc(`locales/${localId}`).get()
   if (!local.exists) throw new HttpsError('not-found', 'Ese local no existe.')
   const estado = local.data()?.estado
   if (estado !== 'activo' && estado !== 'prueba') {
@@ -153,7 +165,7 @@ const exigirLocalAtendiendo = async (localId) => {
 const identificar = async (req, localId, mesaId) => {
   const { uid, token } = exigirSesion(req)
 
-  const ficha = await db.doc(`locales/${localId}/empleados/${uid}`).get()
+  const ficha = await baseDeDatos().doc(`locales/${localId}/empleados/${uid}`).get()
   if (ficha.exists && ficha.data()?.activo === true) {
     const rol = ficha.data()?.rol
     if (['encargado', 'cocina', 'mozo'].includes(rol)) {
@@ -284,7 +296,7 @@ const armarRenglones = async (localId, pedido) => {
   }
 
   const ids = [...pedidos.keys()]
-  const docs = await db.getAll(...ids.map(id => db.doc(`locales/${localId}/carta/${id}`)))
+  const docs = await baseDeDatos().getAll(...ids.map(id => baseDeDatos().doc(`locales/${localId}/carta/${id}`)))
 
   const renglones = []
   let total = 0
@@ -340,7 +352,7 @@ export const crearPedido = onCall(async (req) => {
 
   const clave = exigirClaveDeIdempotencia(req.data?.clave)
 
-  const refMesa = db.doc(`locales/${localId}/mesas/${mesaId}`)
+  const refMesa = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}`)
   const refPedido = refMesa.collection('pedidos').doc(clave)
 
   // Atajo barato para el reintento comun: si ya existe, ni siquiera se
@@ -374,7 +386,7 @@ export const crearPedido = onCall(async (req) => {
 
   const { renglones, total } = await armarRenglones(localId, solicitado)
 
-  const resultado = await db.runTransaction(async (tx) => {
+  const resultado = await baseDeDatos().runTransaction(async (tx) => {
     const [mesa, pedidoPrevio] = await Promise.all([tx.get(refMesa), tx.get(refPedido)])
 
     // Dos reintentos en paralelo llegan hasta aca. El segundo encuentra
@@ -457,9 +469,9 @@ export const cambiarEstadoItem = onCall(async (req) => {
     throw new HttpsError('invalid-argument', 'Ese estado no existe.')
   }
 
-  const refPedido = db.doc(`locales/${localId}/mesas/${mesaId}/pedidos/${pedidoId}`)
+  const refPedido = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}/pedidos/${pedidoId}`)
 
-  await db.runTransaction(async (tx) => {
+  await baseDeDatos().runTransaction(async (tx) => {
     const snap = await tx.get(refPedido)
     if (!snap.exists) throw new HttpsError('not-found', 'Ese pedido ya no existe.')
 
@@ -499,9 +511,9 @@ export const marcarPedidoEntregado = onCall(async (req) => {
   const pedidoId = textoPlano(req.data?.pedidoId)
   if (!pedidoId) throw new HttpsError('invalid-argument', 'Falta el pedido.')
 
-  const refPedido = db.doc(`locales/${localId}/mesas/${mesaId}/pedidos/${pedidoId}`)
+  const refPedido = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}/pedidos/${pedidoId}`)
 
-  await db.runTransaction(async (tx) => {
+  await baseDeDatos().runTransaction(async (tx) => {
     const snap = await tx.get(refPedido)
     if (!snap.exists) throw new HttpsError('not-found', 'Ese pedido ya no existe.')
     const items = (snap.data().items || []).map(i => ({ ...i, estado: 'entregado' }))
@@ -527,10 +539,10 @@ export const cancelarItem = onCall(async (req) => {
   if (!pedidoId) throw new HttpsError('invalid-argument', 'Falta el pedido.')
   if (!rid) throw new HttpsError('invalid-argument', 'Falta el renglon.')
 
-  const refMesa = db.doc(`locales/${localId}/mesas/${mesaId}`)
+  const refMesa = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}`)
   const refPedido = refMesa.collection('pedidos').doc(pedidoId)
 
-  const resultado = await db.runTransaction(async (tx) => {
+  const resultado = await baseDeDatos().runTransaction(async (tx) => {
     const [pedido, mesa] = await Promise.all([tx.get(refPedido), tx.get(refMesa)])
     if (!pedido.exists) throw new HttpsError('not-found', 'Ese pedido ya no existe.')
     if (!mesa.exists) throw new HttpsError('not-found', 'Esa mesa ya no existe.')
@@ -590,9 +602,9 @@ export const pedirCuenta = onCall(async (req) => {
     throw new HttpsError('invalid-argument', 'El importe con el que abona no es valido.')
   }
 
-  const refMesa = db.doc(`locales/${localId}/mesas/${mesaId}`)
+  const refMesa = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}`)
 
-  await db.runTransaction(async (tx) => {
+  await baseDeDatos().runTransaction(async (tx) => {
     const mesa = await tx.get(refMesa)
     if (!mesa.exists) throw new HttpsError('not-found', 'Esa mesa no esta abierta.')
     const datos = mesa.data()
