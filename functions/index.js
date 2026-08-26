@@ -235,6 +235,20 @@ const exigirClaveDeIdempotencia = (valor) => {
 }
 
 /**
+ * Huella de un carrito: que productos y en que cantidad, en orden fijo.
+ *
+ * Sirve para verificar DENTRO de la transaccion que el carrito que se
+ * cotizo afuera sigue siendo el mismo. Si entre la cotizacion y la
+ * escritura alguien le agrego algo, cobrar el carrito viejo seria
+ * cobrarle mal al cliente.
+ */
+const huellaDeCarrito = (carrito) =>
+  (carrito || [])
+    .map(i => `${textoPlano(i?.id)}x${Number(i?.cantidad) || 0}`)
+    .sort()
+    .join('|')
+
+/**
  * Traduce lo que pidio el cliente a renglones con precio de verdad.
  * El precio, el nombre y el DESTINO salen de la carta: el destino
  * decide a que cola va el pedido, asi que dejarlo elegir al cliente
@@ -337,12 +351,25 @@ export const crearPedido = onCall(async (req) => {
     return { pedidoId: refPedido.id, total: yaEstaba.data().total, repetido: true }
   }
 
-  // El comensal puede mandar su carrito explicito; si no manda nada,
-  // se toma el que quedo guardado en la mesa.
+  // Dos caminos distintos, y la diferencia importa:
+  //
+  //  - CONFIRMAR EL CARRITO: el cliente no manda renglones, se toma el
+  //    carrito guardado en la mesa. Ese carrito es un recurso que se
+  //    CONSUME: solo una confirmacion puede convertirlo en pedido.
+  //  - PEDIDO EXTRA: el cliente manda los renglones. No hay carrito que
+  //    consumir, asi que no corresponde bloquear nada.
+  const pidioRenglones = Array.isArray(req.data?.items) && req.data.items.length > 0
+
   let solicitado = req.data?.items
-  if (!Array.isArray(solicitado) || solicitado.length === 0) {
+  let huellaCotizada = null
+  if (!pidioRenglones) {
     const mesaActual = await refMesa.get()
-    solicitado = mesaActual.data()?.carrito || []
+    const carrito = mesaActual.data()?.carrito || []
+    if (carrito.length === 0) {
+      throw new HttpsError('failed-precondition', 'El carrito esta vacio.')
+    }
+    solicitado = carrito
+    huellaCotizada = huellaDeCarrito(carrito)
   }
 
   const { renglones, total } = await armarRenglones(localId, solicitado)
@@ -363,6 +390,27 @@ export const crearPedido = onCall(async (req) => {
       throw new HttpsError('failed-precondition', 'Esa mesa esta libre.')
     }
 
+    if (!pidioRenglones) {
+      // Aca esta el consumo atomico. Dos celulares de la misma mesa pueden
+      // confirmar el mismo carrito al mismo tiempo con claves DISTINTAS: la
+      // idempotencia por clave no los detiene, porque para el servidor son
+      // dos pedidos legitimos y diferentes. Lo que los detiene es que el
+      // carrito ya no este disponible.
+      //
+      // Firestore reintenta la transaccion cuando el documento cambio bajo
+      // sus pies, asi que el segundo vuelve a leer y encuentra la mesa ya
+      // bloqueada.
+      if (datos.carrito_bloqueado === true) {
+        throw new HttpsError('aborted', 'Ese pedido ya fue confirmado desde otro dispositivo.')
+      }
+      // Y si entre la cotizacion y este momento alguien agrego algo al
+      // carrito, lo cotizado ya no es lo que hay: mejor rechazar y que la
+      // app reintente, que cobrar una lista vieja.
+      if (huellaDeCarrito(datos.carrito) !== huellaCotizada) {
+        throw new HttpsError('aborted', 'El carrito cambio mientras se confirmaba. Proba de nuevo.')
+      }
+    }
+
     tx.set(refPedido, {
       items: renglones,
       estado: 'pendiente',
@@ -371,12 +419,17 @@ export const crearPedido = onCall(async (req) => {
       created_at: FieldValue.serverTimestamp(),
     })
 
-    tx.update(refMesa, {
+    const cambios = {
       total_acumulado: Number(datos.total_acumulado || 0) + total,
-      carrito: [],
-      carrito_bloqueado: true,
       estado: datos.estado === 'esperando_cuenta' ? datos.estado : 'esperando_preparacion',
-    })
+    }
+    // El carrito se vacia y se marca consumido solo cuando fue el carrito
+    // lo que se confirmo. Un pedido extra no tiene por que tocarlo.
+    if (!pidioRenglones) {
+      cambios.carrito = []
+      cambios.carrito_bloqueado = true
+    }
+    tx.update(refMesa, cambios)
 
     return { pedidoId: refPedido.id, total, repetido: false }
   })

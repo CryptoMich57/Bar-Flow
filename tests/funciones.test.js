@@ -301,6 +301,102 @@ describe('AUD-002 — idempotencia: un reintento no cobra dos veces', () => {
 })
 
 // ════════════════════════════════════════════════════════════
+describe('AUD-002 — el carrito se consume una sola vez', () => {
+  // Escenario: la mesa tiene un carrito armado y dos celulares mirando la
+  // misma pantalla. Es lo normal en una mesa de cuatro.
+  const conCarrito = () => escribir(`locales/${L}/mesas/mesa_1`, {
+    estado: 'ocupada', personas: 2, carrito_bloqueado: false,
+    total_acumulado: 0, propina: 0, metodo_pago: null,
+    carrito: [
+      { id: 'tostado', cantidad: 1, nota: '' },
+      { id: 'cafe', cantidad: 2, nota: '' },
+    ],
+  })
+
+  it('respuesta perdida y reintento con la MISMA clave: un solo pedido', async () => {
+    await conCarrito()
+    const datos = { localId: L, mesaId: '1', clave: 'clave-reintento' }
+
+    // Primera llamada: el servidor escribe. Simulamos que la respuesta se
+    // pierde en el camino y el cliente vuelve a intentar con su clave.
+    const primera = await llamar('crearPedido', datos, comensalEn(L, 1))
+    const reintento = await llamar('crearPedido', datos, comensalEn(L, 1))
+
+    expect(reintento.pedidoId).toBe(primera.pedidoId)
+    expect(reintento.repetido).toBe(true)
+
+    const lista = await listar(`locales/${L}/mesas/mesa_1/pedidos`)
+    expect(lista).toHaveLength(1)
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(mesa.total_acumulado).toBe(3600)   // 1800 + 2x900, una sola vez
+  }, PACIENCIA)
+
+  it('dos claves DISTINTAS sobre el mismo carrito: una sola gana', async () => {
+    await conCarrito()
+
+    // Este es el caso que la idempotencia por clave no cubre: para el
+    // servidor son dos pedidos legitimos y distintos. Lo que los separa es
+    // que el carrito solo se puede consumir una vez.
+    const resultados = await Promise.allSettled([
+      llamar('crearPedido', { localId: L, mesaId: '1', clave: 'celular-uno' }, comensalEn(L, 1)),
+      llamar('crearPedido', { localId: L, mesaId: '1', clave: 'celular-dos' }, comensalEn(L, 1, 'comensal-2')),
+    ])
+
+    const ok = resultados.filter(r => r.status === 'fulfilled')
+    expect(ok).toHaveLength(1)
+
+    const lista = await listar(`locales/${L}/mesas/mesa_1/pedidos`)
+    expect(lista).toHaveLength(1)
+  }, PACIENCIA)
+
+  it('el total se suma una sola vez aunque se confirme dos veces', async () => {
+    await conCarrito()
+
+    await llamar('crearPedido', { localId: L, mesaId: '1', clave: 'primera-vez' }, comensalEn(L, 1))
+
+    // Segundo intento con otra clave, ya con el carrito consumido.
+    await debeFallar(llamar('crearPedido', {
+      localId: L, mesaId: '1', clave: 'segunda-vez',
+    }, comensalEn(L, 1)))
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(mesa.total_acumulado).toBe(3600)
+    expect(mesa.carrito).toEqual([])
+    expect(mesa.carrito_bloqueado).toBe(true)
+  }, PACIENCIA)
+
+  it('confirmar un carrito vacio no crea nada', async () => {
+    await debeFallar(llamar('crearPedido', {
+      localId: L, mesaId: '1', clave: 'carrito-vacio',
+    }, comensalEn(L, 1)), 'FAILED_PRECONDITION')
+
+    const lista = await listar(`locales/${L}/mesas/mesa_1/pedidos`)
+    expect(lista).toHaveLength(0)
+  }, PACIENCIA)
+
+  it('un pedido extra NO toca el carrito: es otro camino', async () => {
+    await conCarrito()
+
+    // Con renglones explicitos no hay carrito que consumir.
+    await llamar('crearPedido', {
+      localId: L, mesaId: '1', clave: 'extra-aparte',
+      items: [{ id: 'agua', cantidad: 1 }],
+    }, comensalEn(L, 1))
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(mesa.total_acumulado).toBe(700)
+    expect(mesa.carrito).toHaveLength(2)          // el carrito sigue intacto
+    expect(mesa.carrito_bloqueado).toBe(false)    // y sigue disponible
+
+    // Y despues se puede confirmar el carrito, que es lo que espera la mesa.
+    await llamar('crearPedido', { localId: L, mesaId: '1', clave: 'despues-del-extra' }, comensalEn(L, 1))
+    const final = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(final.total_acumulado).toBe(4300)      // 700 + 3600
+  }, PACIENCIA)
+})
+
+// ════════════════════════════════════════════════════════════
 describe('AUD-002 — cada puesto hace lo suyo', () => {
   const pedirAlgo = () => llamar('crearPedido', {
     localId: L, mesaId: '1', clave: 'clave-base', items: [{ id: 'tostado', cantidad: 1 }],

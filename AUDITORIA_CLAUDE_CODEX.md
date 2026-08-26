@@ -204,6 +204,48 @@ el salón.
 | Cancelar siendo mozo | Denegado; el encargado sí |
 | Comensal sobre la mesa de al lado | Denegado |
 
+**Corrección de la idempatencia extremo a extremo (2026-08-24):** la verificación encontró
+que lo entregado antes **no cerraba el circuito**. Dos huecos, y el primero anulaba todo lo
+demás.
+
+**1. La clave se generaba en cada llamada.** `confirmarPedido()` y `agregarPedidoExtra()`
+llamaban a `nuevaClave()` dentro de la función. El backend guardaba el pedido con la clave
+que le llegara, así que si el cliente inventaba una nueva en cada reintento, el reintento
+caía en **otro documento** y el pedido se duplicaba igual. La clave es lo que dice "esto es
+el mismo intento, no uno nuevo", y eso tiene que decidirlo quien reintenta, no quien recibe.
+
+Ahora la clave se genera **una vez por operación pendiente** y se reutiliza hasta que esa
+operación termine bien; recién ahí se suelta. Se guarda en `localStorage` y no en memoria
+para que sobreviva también a recargar la página, que es justo lo que hace alguien cuando la
+app se le queda colgada después de confirmar. Sin `localStorage` —modo privado— degrada a
+clave por llamada, que no es peor que lo que había.
+
+**2. El carrito no se consumía dentro de la transacción.** `crearPedido` leía el carrito
+antes de abrirla y no verificaba nada adentro. Dos celulares de la misma mesa —lo normal en
+una mesa de cuatro— podían confirmar el mismo carrito en paralelo **con claves distintas**:
+para el servidor eran dos pedidos legítimos y diferentes, así que la idempotencia por clave
+no los detenía. Resultado: dos pedidos y el total sumado dos veces.
+
+Ahora el carrito es un recurso que **se consume**. Dentro de la transacción se verifica que
+no esté ya bloqueado, y además que su contenido siga siendo el mismo que se cotizó afuera
+—si alguien le agregó algo en el medio, cobrar la lista vieja sería cobrarle mal al cliente—.
+Firestore reintenta la transacción cuando el documento cambió bajo sus pies, así que el
+segundo confirmante vuelve a leer y encuentra la mesa ya bloqueada.
+
+Se distinguieron además los dos caminos, que antes se trataban igual: **confirmar el
+carrito** lo consume; un **pedido extra** manda renglones explícitos y no tiene por qué
+tocarlo. Antes un pedido extra vaciaba el carrito de la mesa.
+
+**Pruebas nuevas** (25 en total en la suite de Functions):
+
+| Caso | Verifica |
+|---|---|
+| Respuesta perdida + reintento con la misma clave | Un solo pedido; total sumado una vez |
+| Dos claves distintas sobre el mismo carrito, en paralelo | Una sola gana; queda un solo pedido |
+| Confirmar dos veces | El total se suma una sola vez; el carrito queda vacío y bloqueado |
+| Carrito vacío | No crea nada |
+| Pedido extra | No toca el carrito, que después se puede confirmar igual |
+
 **Riesgo pendiente:** los importes son enteros de pesos y no hay redondeo explícito; si
 alguna vez se cargan precios con centavos, conviene revisarlo antes. Tampoco hay límite de
 pedidos por mesa ni por minuto: un cliente con la app abierta puede crear muchos pedidos

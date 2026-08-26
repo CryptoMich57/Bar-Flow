@@ -17,6 +17,34 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-24 — Claude — Idempotencia extremo a extremo (AUD-002)
+
+- **IDs:** `AUD-002` (Resuelto, sin desplegar).
+- **Archivos:** `src/firebase/mesa.js`, `functions/index.js`, `tests/funciones.test.js`.
+- **Cambio:** la verificación encontró que lo entregado antes **no cerraba el circuito**. Dos
+  huecos, y el primero anulaba todo lo demás.
+
+  **La clave se generaba en cada llamada.** El backend guardaba el pedido con la clave que le
+  llegara, así que si el cliente inventaba una nueva en cada reintento, el reintento caía en
+  otro documento y el pedido se duplicaba igual. La clave es lo que dice "esto es el mismo
+  intento", y eso lo decide quien reintenta. Ahora se genera una vez por operación pendiente,
+  se guarda en `localStorage` —para que sobreviva a recargar la página, que es lo que hace
+  alguien cuando la app se cuelga tras confirmar— y se suelta recién cuando el backend
+  confirmó.
+
+  **El carrito no se consumía atómicamente.** Dos celulares de la misma mesa podían confirmar
+  el mismo carrito en paralelo con claves distintas: para el servidor eran dos pedidos
+  legítimos, así que la idempotencia no los detenía. Ahora el carrito se consume dentro de la
+  transacción —se verifica que no esté bloqueado y que su contenido siga siendo el cotizado—
+  y se distinguió el pedido extra, que manda renglones explícitos y no debe tocarlo. Antes un
+  pedido extra vaciaba el carrito de la mesa.
+- **Validación:** `npm test` → **reglas 37/37** y **funciones 25/25** (5 casos nuevos);
+  `npx eslint .` 0 errores; `npm run build` correcto con service worker.
+- **Pendiente / riesgos:** sigue **sin desplegar**. Los riesgos anotados antes no cambian:
+  importes enteros sin redondeo explícito, sin límite de pedidos por mesa ni por minuto, y si
+  dos personas cambian el mismo renglón a la vez gana la última sin avisarle a la otra.
+
+
 ### 2026-08-24 — Claude — Precios en el servidor y concurrencia (AUD-002, AUD-009)
 
 - **IDs:** `AUD-002` (Resuelto, sin desplegar), `AUD-009` (Resuelto, sin desplegar).
