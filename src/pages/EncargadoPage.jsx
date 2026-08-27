@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { suscribirPedidos, suscribirMensajes, enviarMensaje, liberarMesa } from '../firebase/mesa'
+import { suscribirPedidos, suscribirMensajes, enviarMensaje, liberarMesa, suscribirUltimoMensaje } from '../firebase/mesa'
 import { llamarBackend } from '../firebase/funciones'
 import {
   onSnapshot, updateDoc, query, orderBy,
@@ -16,12 +16,14 @@ import { useLocal } from '../utils/LocalContext'
 import EquipoDelLocal from '../components/EquipoDelLocal'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
+import { leerVistos, guardarVistos, hayPendiente, rolDelMensaje, momentoDelMensaje } from '../utils/noLeidos'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '../firebase/configuracion'
 import styles from './EncargadoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje, activarAudio } from '../utils/sonidos'
+import { sonidoNuevoPedido, sonidoLlamadaMozo, sonidoCuenta, sonidoMensaje } from '../utils/sonidos'
+import { useAudioListo } from '../utils/useAudio'
 import { cerrarSesion } from '../firebase/auth'
 
 // NUMS_MESAS se genera dinámicamente desde configDB
@@ -58,7 +60,13 @@ export default function EncargadoPage() {
   const [editandoItem, setEditandoItem]     = useState(null)
   const [nuevoItem, setNuevoItem]           = useState(null)
   const navigate = useNavigate()
-  const [audioOn, setAudioOn] = useState(false)
+  // El audio se habilita solo con el primer toque en la pantalla; el boton
+  // del pie quedo como indicador. Ver src/utils/sonidos.js.
+  const audioOn = useAudioListo()
+  // Ultimo mensaje de cada mesa y hasta donde leyo esta persona: con eso se
+  // pinta el punto de "hay algo sin leer" en las mesas que no tiene abiertas.
+  const [ultimosMensajes, setUltimosMensajes] = useState({})
+  const [vistos, setVistos] = useState({})
   const { agregar: notif, NotifBanner } = useNotificaciones()
   // Ver src/utils/avisos.js. La linea de base va por mesa: usar "el
   // registro esta vacio" hacia que un local que abria sin pedidos no
@@ -98,6 +106,43 @@ export default function EncargadoPage() {
     avisosMensajes.current = crearRegistroDeAvisos()
   }, [localId, mesaSeleccionada])
 
+  useEffect(() => { setVistos(leerVistos(localId, 'encargado')) }, [localId])
+
+  // Un listener por mesa, pero de un solo documento: el ultimo mensaje. Es lo
+  // minimo para saber si hay algo sin leer sin traerse las conversaciones
+  // enteras de todo el salon.
+  useEffect(() => {
+    if (cantidadMesas === 0) return
+    const nums = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
+    const unsubs = nums.map(num =>
+      suscribirUltimoMensaje(localId, num, (msg) =>
+        setUltimosMensajes(prev => ({ ...prev, [num]: msg }))
+      )
+    )
+    return () => unsubs.forEach(u => u())
+  }, [localId, cantidadMesas])
+
+  // La mesa abierta se da por leida: si el encargado la esta mirando, no
+  // tiene sentido marcarle un pendiente encima.
+  useEffect(() => {
+    if (!mesaSeleccionada) return
+    const ultimo = ultimosMensajes[mesaSeleccionada]
+    if (!ultimo) return
+    const hasta = momentoDelMensaje(ultimo)
+    setVistos(prev =>
+      (prev[mesaSeleccionada] || 0) >= hasta
+        ? prev
+        : { ...prev, [mesaSeleccionada]: hasta }
+    )
+  }, [mesaSeleccionada, ultimosMensajes])
+
+  // Guardar aparte del setState: en modo estricto React puede llamar dos
+  // veces al actualizador, y escribir en localStorage adentro seria un
+  // efecto colateral repetido.
+  useEffect(() => {
+    if (Object.keys(vistos).length > 0) guardarVistos(localId, 'encargado', vistos)
+  }, [localId, vistos])
+
   useEffect(() => {
     if (!mesaSeleccionada) return
     const u1 = suscribirPedidos(localId, mesaSeleccionada, (nuevos) => {
@@ -111,7 +156,9 @@ export default function EncargadoPage() {
         nuevos.map(m => ({ ...m, mesa: mesaSeleccionada })),
         [mesaSeleccionada],
       )
-      if (nuevosMsg.length > 0) {
+      // Solo lo que escribe el cliente. Antes sonaba tambien con los mensajes
+      // propios y al encargado le aparecia un aviso sobre su propio texto.
+      if (nuevosMsg.some(m => rolDelMensaje(m) === 'cliente')) {
         sonidoMensaje()
         notif(`💬 Mensaje — Mesa ${mesaSeleccionada}`, 'gold', 3000)
       }
@@ -370,7 +417,7 @@ export default function EncargadoPage() {
   // ── Chat ─────────────────────────────────────────────────────────────────────
   const handleEnviarMensaje = async () => {
     if (!textoMsg.trim() || !mesaSeleccionada) return
-    await enviarMensaje(localId, mesaSeleccionada, textoMsg.trim(), 'Encargado')
+    await enviarMensaje(localId, mesaSeleccionada, textoMsg.trim(), 'Encargado', 'staff')
     setTextoMsg('')
   }
 
@@ -385,6 +432,13 @@ export default function EncargadoPage() {
   const colaBarra = Object.entries(pedidosBarra)
     .flatMap(([mesaId, lista]) => lista.map(p => ({ ...p, mesaId })))
   const barraPendientes = colaBarra.filter(p => p.estado !== 'listo').length
+
+  // Mesas con un mensaje del cliente posterior a la ultima vez que se abrio
+  // ese chat. La que esta abierta nunca cuenta.
+  const mesasConMensaje = Object.keys(ultimosMensajes).filter(num =>
+    num !== mesaSeleccionada &&
+    hayPendiente(ultimosMensajes[num], vistos[num], 'staff')
+  )
 
   const TABS_SIDEBAR = [
     { key: 'mesas',        label: '🏠 Mesas' },
@@ -461,18 +515,20 @@ export default function EncargadoPage() {
               {key === 'barra' && barraPendientes > 0 && (
                 <span className={styles.alertBadge} style={{marginLeft:8}}>{barraPendientes}</span>
               )}
+              {key === 'mesas' && mesasConMensaje.length > 0 && (
+                <span className={styles.alertBadge} style={{marginLeft:8}}>
+                  💬 {mesasConMensaje.length}
+                </span>
+              )}
             </button>
           ))}
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <button
-            className={`${styles.navBtn} ${audioOn ? styles.audioNavOn : ''}`}
-            onClick={() => { activarAudio(); setAudioOn(true) }}
-            title={audioOn ? 'Sonido activado' : 'Activar sonido'}
-          >
-            {audioOn ? '🔔 Sonido activado' : '🔕 Activar sonido'}
-          </button>
+          <div className={`${styles.navBtn} ${audioOn ? styles.audioNavOn : ''}`}
+            title={audioOn ? 'Los avisos suenan' : 'Tocá la pantalla para habilitar el sonido'}>
+            {audioOn ? '🔔 Sonido activado' : '🔕 Tocá para activar el sonido'}
+          </div>
           <button className={styles.navBtn} onClick={() => navigate(`/l/${localId}/cocina`)}>👨‍🍳 Cocina</button>
           <button className={styles.navBtn} onClick={() => navigate(`/l/${localId}/mozo`)}>🧍 Mozo</button>
           <button className={styles.navBtn} onClick={() => cerrarSesion()}>🚪 Cerrar sesion</button>
@@ -514,6 +570,9 @@ export default function EncargadoPage() {
                     <button key={num}
                       className={`${styles.mesaCard} ${styles['m_'+cls]} ${mesaSeleccionada===num?styles.mesaSeleccionada:''} ${estado==='esperando_cuenta'||estado==='cuenta_cobrada'?'cardUrgente':''}`}
                       onClick={() => { setMesaSeleccionada(num); setPedidos([]); setMensajes([]) }}>
+                      {mesasConMensaje.includes(num) && (
+                        <span className={styles.mesaAvisoChat} title="Mensaje sin leer">💬</span>
+                      )}
                       <span className={styles.mesaNum}>Mesa {num}</span>
                       <span className={styles.mesaEstado}>{ESTADO_LABEL[estado]||estado}</span>
                       {mesa?.personas > 0 && <span className={styles.mesaPersonas}>👥 {mesa.personas} personas</span>}

@@ -8,6 +8,8 @@ import {
 import { addDoc, serverTimestamp } from 'firebase/firestore'
 import { colLlamadas } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
+import { categoriasDeLaCarta, esDeCategoria, etiquetaDeCategoria } from '../utils/categorias'
+import { rolDelMensaje } from '../utils/noLeidos'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import { getCopyright, getTextos } from '../config'
 import { cargarConfiguracion } from '../firebase/configuracion'
@@ -43,14 +45,6 @@ const cargarSesion = (localId, mesaId) => {
 }
 const borrarSesion = (localId, mesaId) => localStorage.removeItem(claveSesion(localId, mesaId))
 
-const CATEGORIAS = {
-  promocion:        { label: 'Promo del día', emoji: '🌟' },
-  comida:           { label: 'Comidas',       emoji: '🍽️' },
-  bebida_preparada: { label: 'Cafetería',     emoji: '☕' },
-  bebida_simple:    { label: 'Bebidas',       emoji: '🥤' },
-  postre:           { label: 'Postres',       emoji: '🍰' },
-}
-
 export default function MesaPage() {
   // El QR de la mesa trae el local y el numero: /l/:localId/mesa/:mesaId
   const { localId, nombre: nombreBar, logo } = useLocal()
@@ -73,7 +67,7 @@ export default function MesaPage() {
   const [carta, setCarta]           = useState([])
   const [pedidos, setPedidos]       = useState([])
   const [mensajes, setMensajes]     = useState([])
-  const [categoriaActiva, setCategoriaActiva] = useState('comida')
+  const [categoriaActiva, setCategoriaActiva] = useState(null)
   const [carritoLocal, setCarritoLocal] = useState([])
   const [notasPorItem, setNotasPorItem] = useState({})
   const [textoMensaje, setTextoMensaje] = useState('')
@@ -84,6 +78,10 @@ export default function MesaPage() {
   const [cargando, setCargando]     = useState(false)
   const [error, setError]           = useState(null)
   const [tab, setTab]               = useState('carta')
+  // El comensal casi siempre esta mirando la carta. Sin una marca visible,
+  // la respuesta del encargado llegaba y nadie la veia.
+  const [chatSinLeer, setChatSinLeer] = useState(false)
+  const tabRef = useRef('carta')
   const [llamadoMozo, setLlamadoMozo] = useState(false)
   const [notaMozo, setNotaMozo]     = useState('')
   const [showLlamarMozo, setShowLlamarMozo] = useState(false)
@@ -112,6 +110,11 @@ export default function MesaPage() {
   }, [localId, mesaId, paso])
 
   useEffect(() => {
+    tabRef.current = tab
+    if (tab === 'mensajes') setChatSinLeer(false)
+  }, [tab])
+
+  useEffect(() => {
     if (paso === 'bienvenida' || paso === 'nombre') return
     const unsub = suscribirPedidos(localId, mesaId, setPedidos)
     return unsub
@@ -133,8 +136,12 @@ export default function MesaPage() {
         avisosMensajes.current,
         msgs.map(m => ({ ...m, mesa: mesaId })),
         [mesaId],
-      ).some(m => m.autor !== nombre)
-      if (hayNuevo) sonidoMensaje()
+      ).some(m => rolDelMensaje(m) === 'staff')
+      if (hayNuevo) {
+        sonidoMensaje()
+        // Si ya esta en el chat lo esta leyendo: no hace falta marcar nada.
+        if (tabRef.current !== 'mensajes') setChatSinLeer(true)
+      }
       setMensajes(msgs)
       setTimeout(() => mensajesRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 100)
     })
@@ -253,7 +260,7 @@ export default function MesaPage() {
 
   const handleEnviarMensaje = async () => {
     if (!textoMensaje.trim()) return
-    await enviarMensaje(localId, mesaId, textoMensaje.trim(), nombre)
+    await enviarMensaje(localId, mesaId, textoMensaje.trim(), nombre, 'cliente')
     setTextoMensaje('')
   }
 
@@ -323,7 +330,13 @@ export default function MesaPage() {
   )
 
   // ── VISTA PRINCIPAL ───────────────────────────────────────────────────────
-  const cartaFiltrada = carta.filter(i => i.categoria === categoriaActiva)
+  // Las categorias salen de lo que la carta realmente tiene, y la primera
+  // se elige sola. Fijarla en 'comida' dejaba la pantalla vacia en un bar
+  // que solo vende bebidas, y un producto con categoria desconocida
+  // desaparecia del menu en vez de caer en "Otros".
+  const categoriasVisibles = categoriasDeLaCarta(carta)
+  const categoriaMostrada = categoriaActiva || categoriasVisibles[0] || null
+  const cartaFiltrada = carta.filter(i => esDeCategoria(i, categoriaMostrada))
 
   return (
     <div className={styles.app}>
@@ -386,6 +399,9 @@ export default function MesaPage() {
         ].map(t => (
           <button key={t.key} className={`${styles.tab} ${tab===t.key?styles.tabActivo:''}`} onClick={() => setTab(t.key)}>
             {t.emoji} {t.label}
+            {t.key === 'mensajes' && chatSinLeer && (
+              <span className={styles.puntoSinLeer} aria-label="Mensaje sin leer" />
+            )}
           </button>
         ))}
       </nav>
@@ -394,12 +410,15 @@ export default function MesaPage() {
       {tab === 'carta' && (
         <div className={styles.content}>
           <div className={styles.categorias}>
-            {Object.entries(CATEGORIAS).map(([key, val]) => (
-              <button key={key} className={`${styles.catBtn} ${categoriaActiva===key?styles.catActivo:''}`}
-                onClick={() => setCategoriaActiva(key)}>
-                {val.emoji} {val.label}
-              </button>
-            ))}
+            {categoriasVisibles.map(key => {
+              const val = etiquetaDeCategoria(key === 'otros' ? null : key)
+              return (
+                <button key={key} className={`${styles.catBtn} ${categoriaMostrada===key?styles.catActivo:''}`}
+                  onClick={() => setCategoriaActiva(key)}>
+                  {val.emoji} {val.label}
+                </button>
+              )
+            })}
           </div>
 
           {/* Nota guía carta */}
@@ -558,8 +577,10 @@ export default function MesaPage() {
               </div>
             )}
             {mensajes.map(m => (
-              <div key={m.id} className={`${styles.msg} ${m.autor===nombre?styles.msgPropio:styles.msgOtro}`}>
-                <span className={styles.msgAutor}>{m.autor===nombre?'Vos':'Encargado'}</span>
+              <div key={m.id} className={`${styles.msg} ${rolDelMensaje(m)==='staff'?styles.msgOtro:styles.msgPropio}`}>
+                <span className={styles.msgAutor}>
+                  {rolDelMensaje(m)==='staff' ? 'Encargado' : (m.autor===nombre ? 'Vos' : m.autor)}
+                </span>
                 <span className={styles.msgTexto}>{m.texto}</span>
               </div>
             ))}

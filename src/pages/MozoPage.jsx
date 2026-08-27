@@ -8,18 +8,13 @@ import { refMesa, colPedidos, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
+import { categoriasDeLaCarta, esDeCategoria, etiquetaDeCategoria } from '../utils/categorias'
 import styles from './MozoPage.module.css'
 import '../utils/animaciones.css'
 import { useNotificaciones } from '../utils/useNotificaciones.jsx'
-import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta, activarAudio } from '../utils/sonidos'
+import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta } from '../utils/sonidos'
+import { useAudioListo } from '../utils/useAudio'
 import { cerrarSesion } from '../firebase/auth'
-
-const CATEGORIAS = {
-  comida:           { label: 'Comidas',   emoji: '🍽️' },
-  bebida_preparada: { label: 'Cafetería', emoji: '☕' },
-  bebida_simple:    { label: 'Bebidas',   emoji: '🥤' },
-  postre:           { label: 'Postres',   emoji: '🍰' },
-}
 
 export default function MozoPage() {
   const { localId, nombre: nombreBar, logo } = useLocal()
@@ -36,9 +31,11 @@ export default function MozoPage() {
   const [tab, setTab]                     = useState('alertas')
   const [mesaPedido, setMesaPedido]       = useState(null)
   const [carritoMozo, setCarritoMozo]     = useState([])
-  const [categoriaActiva, setCategoriaActiva] = useState('comida')
+  const [categoriaActiva, setCategoriaActiva] = useState(null)
   const [cargando, setCargando]           = useState(false)
-  const [audioOn, setAudioOn]             = useState(false)
+  // El sonido se habilita con el primer toque, sin tener que buscar el boton:
+  // un mozo que no lo apretaba se perdia los avisos sin saberlo.
+  const audioOn                           = useAudioListo()
   const { agregar: notif, NotifBanner }   = useNotificaciones()
 
   const [cantMesas, setCantMesas] = useState(MESAS_POR_DEFECTO)
@@ -97,6 +94,16 @@ export default function MozoPage() {
   // evaluacion caeria en la zona muerta temporal y la vista reventaria
   // entera con "Cannot access 'misMesas' before initialization", sin
   // llegar a pintar nada.
+  // La primera categoria disponible se elige sola cuando llega la carta:
+  // fijarla en 'comida' dejaba la pantalla vacia en un bar que solo vende
+  // bebidas.
+  const categoriasVisibles = categoriasDeLaCarta(carta)
+  useEffect(() => {
+    if (!categoriaActiva && categoriasVisibles.length > 0) {
+      setCategoriaActiva(categoriasVisibles[0])
+    }
+  }, [categoriaActiva, categoriasVisibles])
+
   const NUMS_MESAS_ACTUAL = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
   const misMesas = ficha?.mesas_asignadas?.length > 0
     ? ficha.mesas_asignadas.map(String)
@@ -261,12 +268,12 @@ export default function MozoPage() {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {totalAlertas > 0 && <span className={styles.alertBadge}>{totalAlertas}</span>}
-          <button
+          <span
             className={`${styles.audioBtn} ${audioOn ? styles.audioBtnOn : ''}`}
-            onClick={() => { activarAudio(); setAudioOn(true) }}
+            title={audioOn ? 'Los avisos suenan' : 'Tocá la pantalla para habilitar el sonido'}
           >
             {audioOn ? '🔔' : '🔕'}
-          </button>
+          </span>
           <button className={styles.cambiarBtn} onClick={() => cerrarSesion()}>Salir</button>
         </div>
       </header>
@@ -479,18 +486,21 @@ export default function MozoPage() {
             <>
               {/* Categorías */}
               <div className={styles.categorias}>
-                {Object.entries(CATEGORIAS).map(([key, val]) => (
-                  <button key={key}
-                    className={`${styles.catBtn} ${categoriaActiva===key?styles.catActivo:''}`}
-                    onClick={() => setCategoriaActiva(key)}>
-                    {val.emoji} {val.label}
-                  </button>
-                ))}
+                {categoriasVisibles.map(key => {
+                  const val = etiquetaDeCategoria(key === 'otros' ? null : key)
+                  return (
+                    <button key={key}
+                      className={`${styles.catBtn} ${categoriaActiva===key?styles.catActivo:''}`}
+                      onClick={() => setCategoriaActiva(key)}>
+                      {val.emoji} {val.label}
+                    </button>
+                  )
+                })}
               </div>
 
               {/* Items */}
               <div className={styles.itemsCarta}>
-                {carta.filter(i => i.categoria===categoriaActiva && i.disponible).map(item => {
+                {carta.filter(i => esDeCategoria(i, categoriaActiva) && i.disponible).map(item => {
                   const cant = carritoMozo.find(i => i.id===item.id)?.cantidad || 0
                   return (
                     <div key={item.id} className={styles.itemCartaCard}>

@@ -154,6 +154,7 @@
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: all 0.2s;
+  position: relative;
   white-space: nowrap;
 }
 
@@ -797,3 +798,25 @@
 .guiaEmoji { font-size: 1.2em; flex-shrink: 0; margin-top: 1px; }
 .guiaBox p { font-size: 0.82em; color: var(--text2); line-height: 1.6; }
 .guiaBox strong { color: var(--text); }
+
+/* Respuesta del encargado sin leer. El comensal suele estar en la carta y el
+   sonido puede sonar con el celular en la mesa: hace falta algo que quede. */
+.puntoSinLeer {
+  position: absolute;
+  top: 7px;
+  margin-left: 3px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--green, #3ec46d);
+  box-shadow: 0 0 0 0 rgba(62,196,109,0.6);
+  animation: latidoPunto 1.6s ease-in-out infinite;
+}
+
+@keyframes latidoPunto {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(62,196,109,0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(62,196,109,0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .puntoSinLeer { animation: none; }
+}

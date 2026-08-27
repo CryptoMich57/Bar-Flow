@@ -9,7 +9,7 @@
 import {
   getDoc, setDoc, updateDoc, onSnapshot,
   addDoc, serverTimestamp, runTransaction,
-  query, orderBy, writeBatch, getDocs,
+  query, orderBy, limit, writeBatch, getDocs,
 } from 'firebase/firestore'
 import { db } from './config'
 import {
@@ -207,9 +207,26 @@ export const suscribirCarta = (localId, callback) => {
   })
 }
 
-export const enviarMensaje = async (localId, mesaId, texto, autor) => {
+/**
+ * `rol` es 'cliente' o 'staff'. Antes se distinguia comparando el nombre
+ * del autor con el propio, y eso fallaba de dos maneras: el encargado se
+ * auto-notificaba de sus propios mensajes, y un comensal que se pusiera de
+ * nombre "Encargado" aparecia como personal del local. Las reglas ahora
+ * exigen que el rol coincida con quien escribe, asi que no se puede mentir.
+ */
+export const enviarMensaje = async (localId, mesaId, texto, autor, rol) => {
   await addDoc(colMensajes(localId, mesaId), {
-    texto, autor, created_at: serverTimestamp(),
+    texto, autor, rol, created_at: serverTimestamp(),
+  })
+}
+
+// Solo el ultimo mensaje de la mesa: alcanza para saber si hay algo sin leer
+// y cuesta un documento por mesa en vez de la conversacion entera.
+export const suscribirUltimoMensaje = (localId, mesaId, callback) => {
+  const q = query(colMensajes(localId, mesaId), orderBy('created_at', 'desc'), limit(1))
+  return onSnapshot(q, (snap) => {
+    const doc = snap.docs[0]
+    callback(doc ? { id: doc.id, ...doc.data() } : null)
   })
 }
 

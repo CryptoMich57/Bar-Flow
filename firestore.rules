@@ -292,7 +292,11 @@ service cloud.firestore {
 
         match /mensajes/{mensajeId} {
           allow read:           if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
-          allow create:         if esComensal(localId, mesaId) || esPersonal(localId);
+          // El rol tiene que coincidir con quien escribe. La vista lo usa para
+          // saber que avisar, y antes se deducia del nombre del autor: un
+          // comensal que se llamara "Encargado" pasaba por personal del local.
+          allow create:         if (esComensal(localId, mesaId) && request.resource.data.rol == 'cliente')
+                                || (esPersonal(localId) && request.resource.data.rol == 'staff');
           allow update, delete: if esPersonal(localId);
         }
 

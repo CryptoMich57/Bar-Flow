@@ -2,6 +2,16 @@
 let audioCtx = null
 let audioActivado = false
 
+// Quien quiera mostrar en pantalla si el sonido esta listo se anota aca.
+const suscriptores = new Set()
+const avisarEstado = () => suscriptores.forEach(fn => { try { fn(audioActivado) } catch {} })
+
+export const alCambiarAudio = (cb) => {
+  suscriptores.add(cb)
+  cb(audioActivado)
+  return () => suscriptores.delete(cb)
+}
+
 const getCtx = () => {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
   return audioCtx
@@ -62,7 +72,8 @@ export const sonidoLlamadaMozo = () => {
 
 // 💬 Mensaje nuevo — ting agudo y limpio
 export const sonidoMensaje = () => {
-  tono(1568, 0.35, 0.45, 'sine', 0)
+  tono(1568, 0.14, 0.7, 'triangle', 0)
+  tono(1975, 0.3,  0.7, 'triangle', 0.14)
 }
 
 // 💳 Cliente pide cuenta — dos notas graves pero fuertes
@@ -82,8 +93,27 @@ export const activarAudio = () => {
     gain.connect(ctx.destination)
     osc.start()
     osc.stop(ctx.currentTime + 0.001)
-    ctx.resume().then(() => { audioActivado = true })
+    ctx.resume().then(() => { audioActivado = true; avisarEstado() })
   } catch {}
+}
+
+/**
+ * Los navegadores no dejan sonar nada hasta que la persona toca la pantalla.
+ * Hasta ahora habia que encontrar el boton 🔕 de la barra: el mozo que no lo
+ * apretaba se perdia todos los avisos y —peor— no tenia forma de enterarse de
+ * que se los estaba perdiendo.
+ *
+ * Cualquier gesto sirve para levantar el bloqueo del navegador, y para usar la
+ * app hay que tocarla igual. Asi que se aprovecha el primero que llegue y el
+ * boton queda solo como indicador.
+ */
+export const activarAudioAlPrimerGesto = () => {
+  if (audioActivado) return () => {}
+  const gestos = ['pointerdown', 'keydown', 'touchstart']
+  const quitar = () => gestos.forEach(g => window.removeEventListener(g, alGesto))
+  function alGesto() { activarAudio(); quitar() }
+  gestos.forEach(g => window.addEventListener(g, alGesto, { passive: true }))
+  return quitar
 }
 
 export const estaActivado = () => audioActivado

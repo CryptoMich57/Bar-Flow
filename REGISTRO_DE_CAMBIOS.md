@@ -17,6 +17,86 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — El mozo no podía vender una categoría entera (AUD-015)
+
+- **IDs:** `AUD-015` (Resuelto, sin desplegar).
+- **Archivos:** `src/utils/categorias.js` (nuevo), `src/pages/MozoPage.jsx`,
+  `src/pages/MesaPage.jsx`, `tests/vistas.test.js` (nuevo), `package.json`.
+- **Cambio:** la lista de categorías estaba escrita dos veces y no coincidía: al mozo le
+  faltaba `promocion`, que es donde el local había cargado su menú del día. El filtro de la
+  carta no podía alcanzar ese producto desde ninguna pestaña del mozo, así que el carrito
+  quedaba vacío y el botón "Enviar pedido" —que sólo existe con el carrito cargado— no
+  llegaba a dibujarse. Desde afuera: la carta aparecía y no pasaba nada.
+
+  Ahora hay una sola lista en `src/utils/categorias.js`. Se agregó una categoría "Otros" de
+  recolección para que un producto con categoría desconocida se muestre en vez de
+  desaparecer, y las pestañas se arman con lo que la carta realmente tiene: un bar que sólo
+  vende bebidas ya no abre en una pestaña "Comidas" vacía.
+- **Validación:** `npm run test:unidad` → **13/13** (nueva suite); `npx eslint .` 0 errores;
+  `npm run build` correcto. El caso central de la suite es "ningún producto de la carta se
+  queda afuera", que se sigue cumpliendo aunque después se agreguen categorías.
+- **Pendiente / riesgos:** sin desplegar. La verificación en el navegador queda para la
+  prueba real: requiere una carta con un producto en `promocion`.
+
+### 2026-08-27 — Claude — Avisos del chat que se perdían (AUD-016)
+
+- **IDs:** `AUD-016` (Resuelto, sin desplegar).
+- **Archivos:** `src/utils/noLeidos.js` (nuevo), `src/firebase/mesa.js`, `firestore.rules`,
+  `src/pages/EncargadoPage.jsx`, `src/pages/MesaPage.jsx`, y sus dos hojas de estilo.
+- **Cambio:** tres defectos del chat, reportados en la prueba real.
+
+  **El encargado sólo se enteraba de la mesa que tenía abierta.** El sonido sonaba una vez y
+  no dejaba rastro. Ahora hay un listener por mesa de **un solo documento** —el último
+  mensaje— y las mesas con algo sin leer se marcan con un punto rojo en la grilla y un
+  contador en la pestaña "Mesas". La marca de "ya lo vi" va al navegador y no a Firestore:
+  es de esa persona en ese dispositivo, así que la tablet de la barra y el celular llevan
+  cuentas separadas.
+
+  **Se auto-notificaba de sus propios mensajes.** El chat deducía el autor comparando
+  nombres, lo que además dejaba que un comensal llamado "Encargado" se dibujara como personal
+  del local. Los mensajes llevan ahora `rol` (`'cliente'` / `'staff'`) y **las reglas exigen
+  que coincida con quien escribe**. Los mensajes viejos, sin el campo, se siguen leyendo por
+  el nombre.
+
+  **El comensal tampoco veía la respuesta:** punto verde en la pestaña "Chat" hasta que la
+  abra.
+- **Validación:** `npm run test:reglas` → **40/40** (3 casos nuevos: el rol no se puede
+  falsear en ninguno de los dos sentidos, y sin rol el mensaje se rechaza);
+  `npm run test:unidad` → 13/13, 8 de ellos sobre pendientes;
+  `npm run test:funciones` → 25/25; `npx eslint .` 0 errores; `npm run build` correcto.
+- **Pendiente / riesgos:** el listener por mesa agrega **una lectura por mesa al abrir** más
+  una por mensaje nuevo — anotado en `AUD-011`. En la primera carga, una mesa con una
+  conversación vieja sin abrir muestra el punto; se limpia al abrirla una vez.
+
+### 2026-08-27 — Claude — El sonido dependía de encontrar un botón (AUD-017)
+
+- **IDs:** `AUD-017` (Resuelto, sin desplegar).
+- **Archivos:** `src/utils/sonidos.js`, `src/utils/useAudio.js` (nuevo),
+  `src/pages/MozoPage.jsx`, `src/pages/EncargadoPage.jsx`.
+- **Cambio:** los navegadores no dejan sonar nada hasta que la persona toca la pantalla, y la
+  app resolvía eso con un botón 🔕 en la barra. Quien no lo apretaba no escuchaba **ningún**
+  aviso en todo el turno y no tenía forma de enterarse: para un mozo que depende de esos
+  avisos, es un modo de falla silencioso. Ahora se aprovecha el primer gesto que llegue
+  —cualquiera sirve, y para usar la app hay que tocarla igual— y el botón quedó como
+  indicador. El aviso de mensaje pasó de un tono flojo a dos más fuertes.
+
+  El estado del audio vivía duplicado en cada pantalla; ahora es uno solo para la pestaña y
+  las vistas se suscriben, así el indicador no puede quedar apagado con el audio andando.
+- **Validación:** `npx eslint .` 0 errores; `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. El sonido sigue sin ser configurable por local
+  (volumen, o silenciar). Si hace falta, va como ajuste del encargado.
+
+### Nota de infraestructura — el emulador de Functions arranca flaky
+
+Corriendo `npm run test:funciones` tres veces seguidas, una falló con **las 25 pruebas** en
+rojo y `Failed to start functions: Failed to load function` en el log: el emulador no llegó a
+levantar y todas las llamadas se quedaron sin respuesta. Las otras dos dieron 25/25. No es una
+regresión del código —fallan también las pruebas que nadie tocó— pero conviene tenerlo
+presente antes de leer un rojo como un defecto real, y hay que resolverlo antes de meter la
+suite en CI (`AUD-014`): un CI que falla al azar deja de mirarse. También quedan procesos del
+emulador vivos si la corrida se corta, y ocupan los puertos de la siguiente.
+
+
 ### 2026-08-24 — Claude — Preparar el despliegue de Functions
 
 - **IDs:** soporte de `AUD-001` y `AUD-002` (siguen Resueltos, sin desplegar).

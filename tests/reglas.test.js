@@ -82,6 +82,7 @@ const historial  = (d, id) => collection(d, 'locales', id, 'historial')
 const empleado   = (d, id, uid) => doc(d, 'locales', id, 'empleados', uid)
 const invitacion = (d, id, mail) => doc(d, 'locales', id, 'invitaciones', mail)
 const invitGlobal = (d, mail) => doc(d, 'invitaciones', mail)
+const mensajes   = (d, id, n) => collection(d, 'locales', id, 'mesas', `mesa_${n}`, 'mensajes')
 
 beforeAll(async () => {
   entorno = await initializeTestEnvironment({
@@ -353,6 +354,33 @@ describe('AUD-006 — el email tiene que estar verificado', () => {
 })
 
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+describe('El rol del mensaje no se puede falsear', () => {
+  // La vista decide que avisar segun el rol. Si un comensal pudiera
+  // escribir rol:'staff', se dibujaria como personal del local dentro del
+  // chat de su propia mesa, y ademas el encargado dejaria de recibir el
+  // aviso. Es suplantacion, aunque sea de bajo impacto.
+
+  it('el comensal escribe como cliente y no puede decir que es del local', async () => {
+    const d = db(comensalDe('bar-a', 1))
+    await assertSucceeds(setDoc(doc(mensajes(d, 'bar-a', 1)), { texto: 'hola', autor: 'Ana', rol: 'cliente' }))
+    await assertFails(setDoc(doc(mensajes(d, 'bar-a', 1)), { texto: 'soy el bar', autor: 'Encargado', rol: 'staff' }))
+  })
+
+  it('el personal escribe como staff y no puede hacerse pasar por cliente', async () => {
+    const d = db(conGoogle('ana', 'ana@a.com'))
+    await assertSucceeds(setDoc(doc(mensajes(d, 'bar-a', 1)), { texto: 'ya va', autor: 'Encargado', rol: 'staff' }))
+    await assertFails(setDoc(doc(mensajes(d, 'bar-a', 1)), { texto: 'que rico', autor: 'Ana', rol: 'cliente' }))
+  })
+
+  it('un mensaje sin rol no entra', async () => {
+    // Sin rol no hay forma de saber a quien avisarle, asi que se rechaza en
+    // vez de adivinar por el nombre del autor.
+    const d = db(comensalDe('bar-a', 1))
+    await assertFails(setDoc(doc(mensajes(d, 'bar-a', 1)), { texto: 'hola', autor: 'Ana' }))
+  })
+})
+
 describe('Escalada de privilegios dentro del local', () => {
   it('un mozo no se asciende a encargado', async () => {
     const d = db(conGoogle('mario', 'mario@a.com'))

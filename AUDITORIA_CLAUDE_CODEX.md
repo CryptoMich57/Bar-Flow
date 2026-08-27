@@ -1011,6 +1011,96 @@ fallido, pero el camino de acceso directo por `PuertaDeAcceso` sólo registra el
 trabajo de Functions, pero el E2E de canje fallido debe exigir el mismo mensaje correcto en
 ambos caminos y no sólo presencia en consola.
 
+### AUD-015 — P0 Bloqueante — El mozo no podía tomar pedidos de una categoría entera
+
+**Reportado por:** prueba real en el bar, 2026-08-27. *"la seccion de tomar pedido del mozo no
+funciona, aparece la carta pero no avanza para enviar el pedido."*
+
+**Causa.** La lista de categorías estaba escrita dos veces, una en `MesaPage.jsx` (comensal) y
+otra en `MozoPage.jsx`. No coincidían: al mozo le faltaba `promocion`. El local había cargado
+su menú del día justamente ahí, así que el filtro `carta.filter(i => i.categoria ===
+categoriaActiva)` no podía alcanzarlo desde ninguna pestaña del mozo. El carrito quedaba
+vacío, y el botón "📤 Enviar pedido" sólo se dibuja con el carrito cargado: por eso la carta
+aparecía y no pasaba nada.
+
+Nada fallaba de forma visible —ni un error en consola, ni una regla rechazando nada—. Es el
+tipo de defecto que sólo se descubre intentando vender ese producto en particular.
+
+**Corrección.** Una sola lista en `src/utils/categorias.js`, importada por las dos vistas. Se
+agregó además una categoría **"Otros"** de recolección: un producto cuya categoría no figure
+en la lista —quedó de una versión anterior, o alguien la escribió a mano en la consola— se
+muestra ahí en vez de desaparecer. Y las pestañas ahora se arman con las categorías que la
+carta **realmente tiene**, no con las cinco fijas: un bar que sólo vende bebidas ya no abre
+en una pestaña "Comidas" vacía.
+
+Colateral: `categoriaActiva` estaba fija en `'comida'` como estado inicial, que era la otra
+mitad del mismo problema.
+
+**Pruebas nuevas:** `tests/vistas.test.js` (13 casos, sin emulador). El caso central es
+*"ningún producto de la carta se queda afuera"*: para cada producto se exige que exista al
+menos una pestaña que lo muestre. Esa propiedad se cumple sin importar qué categorías se
+agreguen después.
+
+---
+
+### AUD-016 — P1 Alto — Los avisos del chat se perdían y el encargado se auto-notificaba
+
+**Reportado por:** la misma prueba real. Tres cosas distintas, todas del chat.
+
+**1. El encargado no ve un mensaje si no está parado en esa mesa.** Escucha el chat de **una**
+mesa: la que tiene abierta. Un cliente de la mesa 7 escribiendo mientras él mira la 3 producía
+un sonido —bajo— y nada más: el aviso no dejaba rastro. Si no estaba mirando la pantalla en
+ese segundo exacto, el mensaje se perdía.
+
+Ahora hay un listener por mesa, pero **de un solo documento**: el último mensaje
+(`orderBy desc, limit 1`). Alcanza para saber si hay algo sin leer y cuesta un documento por
+mesa en vez de traerse las conversaciones enteras del salón. Las mesas con algo pendiente se
+marcan con un punto rojo en la grilla y con un contador en la pestaña "🏠 Mesas".
+
+La marca de "ya lo vi" se guarda en el navegador, no en Firestore: es de esa persona en ese
+dispositivo. Si el encargado atiende desde la tablet de la barra y desde su celular, cada uno
+lleva su propia cuenta, que es lo correcto.
+
+**2. El encargado recibía la notificación de su propio mensaje.** El chat distinguía autores
+comparando el nombre. Además de auto-notificar, eso significaba que un comensal que se pusiera
+de nombre "Encargado" aparecía dibujado como personal del local dentro del chat de su mesa.
+
+Los mensajes ahora llevan un campo `rol` (`'cliente'` o `'staff'`) y **las reglas exigen que
+coincida con quien escribe**: un comensal no puede crear un mensaje con `rol: 'staff'` ni al
+revés. No es un agujero grave —el alcance es el chat de una mesa— pero era suplantación, y se
+cierra en la frontera y no en la vista. Los mensajes escritos antes de que existiera el campo
+se siguen leyendo por el nombre del autor.
+
+**3. El comensal tampoco veía la respuesta.** Está casi siempre mirando la carta, con el
+celular apoyado en la mesa. Se agregó un punto verde en la pestaña "Chat" que queda hasta que
+la abra.
+
+**Pruebas nuevas:** 3 casos de reglas (el rol no se puede falsear, en los dos sentidos, y un
+mensaje sin rol se rechaza) y 8 de unidad sobre la lógica de pendientes.
+
+---
+
+### AUD-017 — P1 Alto — El sonido dependía de que alguien encontrara un botón
+
+**Reportado por:** la misma prueba. *"el sonido es muy bajito"*, y el mozo se perdía avisos.
+
+Los navegadores no dejan sonar nada hasta que la persona toca la pantalla. La app resolvía eso
+con un botón 🔕 en la barra: quien no lo apretaba **no escuchaba ningún aviso en todo el turno
+y no tenía forma de enterarse de que se los estaba perdiendo**. Para un mozo que depende de
+esos avisos para saber que hay un pedido listo, es un modo de falla silencioso.
+
+Cualquier gesto sirve para levantar el bloqueo, y para usar la app hay que tocarla igual. Ahora
+se aprovecha el primero que llegue —`pointerdown`, `keydown` o `touchstart`— y el botón queda
+sólo como indicador de estado. El aviso de mensaje pasó además de un tono flojo a dos tonos más
+fuertes.
+
+Y lo más importante: el sonido dejó de ser el único canal. Un aviso sonoro en un bar compite
+con la música y con la gente; los puntos de AUD-016 quedan hasta que alguien los atienda.
+
+**Nota sobre el estado del audio:** vivía duplicado en cada pantalla (`audioOn` por página).
+Ahora es uno solo para toda la pestaña, en `src/utils/sonidos.js`, y las vistas se suscriben:
+el indicador no puede quedar apagado mientras el audio ya está andando.
+
 ## Orden de implementación para Claude
 
 1. Congelar despliegues y cubrir con pruebas de reglas `AUD-001` a `AUD-004`.
