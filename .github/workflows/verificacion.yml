@@ -30,11 +30,14 @@ jobs:
           node-version: '22'
           cache: npm
 
-      # El emulador de Firestore corre sobre la JVM.
+      # El emulador de Firestore corre sobre la JVM, y firebase-tools 15
+      # exige JDK 21 o superior: con 17 ni arranca. Tiene que coincidir con
+      # el de la maquina donde se desarrolla, o la CI falla por algo que
+      # localmente anda.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Instalar dependencias
         run: npm ci
