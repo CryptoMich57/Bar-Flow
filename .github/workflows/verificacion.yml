@@ -1,0 +1,71 @@
+# ============================================================
+#  VERIFICACIÓN ANTES DE DESPLEGAR  (AUD-013)
+#
+#  Hasta ahora correr las pruebas dependía de que alguien se acordara.
+#  El bug que dejó al mozo sin poder vender una categoría entera pasó
+#  el build, pasó el lint y llegó al bar: lo que faltaba no era una
+#  herramienta más, era que las que hay corran solas en cada cambio.
+#
+#  Los emuladores necesitan Java, así que se instala acá y no en la
+#  máquina de nadie.
+# ============================================================
+name: Verificación
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # El emulador de Firestore corre sobre la JVM.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar dependencias de las Functions
+        run: npm ci --prefix functions
+
+      # Guardar el jar del emulador entre corridas: bajarlo cada vez son
+      # varios minutos de nada.
+      - name: Cache de los emuladores
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: emuladores-${{ runner.os }}-${{ hashFiles('firebase.json') }}
+          restore-keys: emuladores-${{ runner.os }}-
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Pruebas de unidad
+        run: npm run test:unidad
+
+      - name: Pruebas de reglas
+        run: npm run test:reglas
+
+      # El emulador de Functions a veces no llega a levantar y todas las
+      # llamadas se quedan sin respuesta: es un arranque flaky conocido,
+      # no una falla del código. Se reintenta una vez antes de dar rojo,
+      # porque una CI que falla al azar deja de mirarse.
+      - name: Pruebas de Functions
+        run: npm run test:funciones || npm run test:funciones
+
+      - name: Build
+        run: npm run build

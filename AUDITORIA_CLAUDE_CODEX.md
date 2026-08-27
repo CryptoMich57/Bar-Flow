@@ -845,7 +845,7 @@ rutas de personal después de corregir el bloqueo de `MozoPage` registrado en `A
 
 ### AUD-013 — P2 Medio — Entrega, PWA, mantenibilidad y accesibilidad incompletas
 
-**Estado:** Pendiente
+**Estado:** Parcialmente resuelto (2026-08-27) — quedan mantenibilidad y accesibilidad
 
 **Nota (2026-08-24):** la **CI** se sigue en este hallazgo, trasladada desde `AUD-010`. El
 pipeline que se pide acá tiene que ejecutar `npm run lint`, `npm test` y `npm run build`
@@ -864,7 +864,51 @@ hallazgo pedía como mejora —separar en chunks y hacer *lazy-load* por ruta—
 necesario: la pantalla del comensal descarga hoy el código del encargado, del mozo y de la
 cocina, que nunca va a usar.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude (2026-08-27):** **Parcialmente resuelto.** Entrega y CI, sí. Peso, sólo
+en parte, y conviene decir por qué.
+
+**Carga por ruta.** Las siete vistas pasaron a `lazy()` + `Suspense`. Cada una es ahora su
+propio archivo y baja cuando alguien entra a su ruta:
+
+| Chunk | Peso |
+|---|---|
+| `EncargadoPage` | 41,9 kB |
+| `MesaPage` | 24,3 kB |
+| `MozoPage` | 14,9 kB |
+| `CocinaPage` | 9,3 kB |
+| `AdminPage`, `LoginPage`, `RegistroPage` | ~12 kB entre las tres |
+
+**La medición desarma la premisa del hallazgo, y vale anotarlo.** Al separar el vendor se ve
+que **Firebase solo pesa 697,7 kB de los ~1000** (172 kB gzip). El código de todas las vistas
+del personal juntas son 74 kB: sacárselo al comensal es real pero chico. El comensal pasó de
+~1004 kB a **~923 kB** (265 → 247 kB gzip). El bulto no era el código de la app, era Firestore,
+y Firestore es lo que hace que la carta se actualice sola en la pantalla del cliente. No hay
+versión liviana con listeners en tiempo real: `firestore/lite` no los tiene.
+
+Se probó separar Firebase en tres (firestore 473 kB, auth 115 kB, app+functions 109 kB). Da
+mejor foto pero los tres se referencian entre sí y rollup avisa de **chunks circulares**, que
+es una forma conocida de romper el orden de inicialización en producción. No vale el riesgo por
+una métrica.
+
+**Lo que sí cambia todos los días:** el vendor quedó en chunks aparte del código de la app.
+Antes, tocar una línea de una pantalla invalidaba el cache de los 840 kB de Firebase y React y
+todo el mundo se los volvía a bajar en cada despliegue. Para el personal, que abre la app cada
+turno, eso pesa más que los 80 kB de la primera visita.
+
+**Precache de la PWA.** Las vistas del personal salieron del precache (`globIgnores`). El
+comensal entra una vez y se va: guardarle en el teléfono pantallas que nunca va a abrir es
+bajarle datos por nada. El personal las descarga la primera vez y quedan en el cache normal del
+navegador.
+
+**CI.** `.github/workflows/verificacion.yml` corre en cada push y PR a `main`: lint → unidad →
+reglas → Functions → build. Instala Java para los emuladores y cachea el jar entre corridas. El
+paso de Functions reintenta una vez: el emulador tiene un arranque flaky conocido —una de cada
+tres corridas no llega a levantar y las 40 pruebas quedan sin respuesta— y **una CI que falla
+al azar deja de mirarse**, que es peor que no tenerla.
+
+**Lo que queda de este hallazgo:** `EncargadoPage.jsx` sigue teniendo más de 900 líneas y la
+revisión de accesibilidad (labels asociados, foco, teclado, contraste) no se hizo. Ninguna de
+las dos es de riesgo; son de mantenibilidad.
 
 ### AUD-014 — P1 Alto — Sin pruebas automatizadas de interfaz ni de sesiones reales
 

@@ -17,6 +17,39 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Carga por ruta y CI (AUD-013)
+
+- **IDs:** `AUD-013` (Parcialmente resuelto, sin desplegar).
+- **Archivos:** `src/App.jsx`, `vite.config.js`, `.github/workflows/verificacion.yml` (nuevo).
+- **Cambio:** las siete vistas pasaron a `lazy()` + `Suspense`: cada una baja cuando alguien
+  entra a su ruta. El vendor (Firebase, React, router) quedó en chunks aparte del código de la
+  app, y las vistas del personal salieron del precache de la PWA — el comensal entra una vez y
+  se va, guardarle en el teléfono pantallas que nunca va a abrir es bajarle datos por nada.
+
+  **La medición desarma en parte la premisa del hallazgo y conviene anotarlo.** Al separar el
+  vendor se ve que **Firebase solo pesa 697,7 kB de los ~1000**. El código de todas las vistas
+  del personal juntas son 74 kB: sacárselo al comensal es real pero chico —de ~1004 a ~923 kB,
+  265 → 247 kB gzip—. El bulto no era el código de la app, era Firestore, que es lo que hace
+  que la carta se actualice sola en la pantalla del cliente; no hay versión liviana con
+  listeners en tiempo real.
+
+  Lo que sí cambia todos los días es el cache: antes, tocar una línea de una pantalla
+  invalidaba los 840 kB de Firebase y React y todo el mundo se los volvía a bajar en cada
+  despliegue. Para el personal, que abre la app cada turno, eso pesa más que los 80 kB de la
+  primera visita.
+
+  **CI:** corre en cada push y PR a `main` — lint → unidad → reglas → Functions → build. El
+  paso de Functions reintenta una vez, porque el emulador tiene un arranque flaky conocido y
+  una CI que falla al azar deja de mirarse.
+- **Validación:** `npx eslint .` 0 errores; `npm run build` correcto; las siete rutas montan
+  verificadas en el navegador (`/`, `/registro`, `/admin`, `/l/:id/mesa/1`, `/l/:id/encargado`,
+  `/l/:id/mozo`), sin errores nuevos de consola.
+- **Pendiente / riesgos:** sin desplegar. Quedan de este hallazgo `EncargadoPage.jsx` con más
+  de 900 líneas y la revisión de accesibilidad. Se descartó separar Firebase en tres chunks:
+  da mejor foto pero rollup avisa de chunks circulares, que rompen el orden de inicialización
+  en producción.
+
+
 ### 2026-08-27 — Claude — Cerrar la mesa ya no puede cobrar dos veces (AUD-005)
 
 - **IDs:** `AUD-005` (Resuelto, sin desplegar).

@@ -1,18 +1,25 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import MesaPage from './pages/MesaPage'
-import EncargadoPage from './pages/EncargadoPage'
-import MozoPage from './pages/MozoPage'
-import CocinaPage from './pages/CocinaPage'
-import LoginPage from './pages/LoginPage'
-import RegistroPage from './pages/RegistroPage'
-import AdminPage from './pages/AdminPage'
 import PuertaDeAcceso from './components/PuertaDeAcceso'
 import { LocalProvider, useLocal } from './utils/LocalContext'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSesion, useAcceso } from './utils/useSesion'
 import { cerrarSesion } from './firebase/auth'
 import { abrirSesionDeMesa } from './firebase/capacidadMesa'
+
+// Cada vista se descarga cuando alguien entra a su ruta, no antes.
+// Todo venia en un solo archivo, asi que el comensal que escanea un QR
+// para ver la carta se bajaba tambien el codigo del encargado, del mozo,
+// de la cocina y del panel de la plataforma —que nunca va a abrir—. Con
+// datos moviles en un bar, eso es el primer contacto del cliente con el
+// producto.
+const MesaPage      = lazy(() => import('./pages/MesaPage'))
+const EncargadoPage = lazy(() => import('./pages/EncargadoPage'))
+const MozoPage      = lazy(() => import('./pages/MozoPage'))
+const CocinaPage    = lazy(() => import('./pages/CocinaPage'))
+const LoginPage     = lazy(() => import('./pages/LoginPage'))
+const RegistroPage  = lazy(() => import('./pages/RegistroPage'))
+const AdminPage     = lazy(() => import('./pages/AdminPage'))
 
 // ============================================================
 //  RUTAS
@@ -128,6 +135,9 @@ function ConLocal({ children }) {
 
 export default function App() {
   return (
+    // El fallback tiene que ser sobrio: aparece un instante mientras baja
+    // el chunk de la vista, y en una conexion buena casi no se ve.
+    <Suspense fallback={<div className="pantallaEstado"><p>Cargando...</p></div>}>
     <Routes>
       {/* ── Plataforma ────────────────────────────────────── */}
       <Route path="/login"    element={<LoginPage />} />
@@ -167,5 +177,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+    </Suspense>
   )
 }
