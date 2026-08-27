@@ -475,10 +475,11 @@ export default function MozoPage() {
 
           {/* Seleccionar mesa */}
           <div className={styles.mesaSelector}>
-            <label className={styles.inputLabel}>Mesa</label>
-            <div className={styles.mesasBtns}>
+            <span id="mozo-elegir-mesa" className={styles.inputLabel}
+              style={{display:'block'}}>Mesa</span>
+            <div className={styles.mesasBtns} role="group" aria-labelledby="mozo-elegir-mesa">
               {misMesas.map(num => (
-                <button key={num} aria-label={`Mesa ${num}`}
+                <button key={num} aria-label={`Mesa ${num}`} aria-pressed={mesaPedido===num}
                   className={`${styles.mesaNumBtn} ${mesaPedido===num?styles.mesaNumActivo:''}`}
                   onClick={() => setMesaPedido(num)}>
                   {num}

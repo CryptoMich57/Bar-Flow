@@ -117,3 +117,36 @@ test('quien no trabaja en el local no entra', async ({ page }) => {
   await expect(page.getByText(/no perten|no estas asociad|no tenes acceso/i).first())
     .toBeVisible({ timeout: 20_000 })
 })
+
+test('todas las pestañas del encargado montan', async ({ page }) => {
+  // Red para poder partir EncargadoPage sin romper nada: 1071 lineas y
+  // seis pestañas que ninguna prueba tocaba. Un error al renderizar
+  // cualquiera de ellas deja esa mitad de la pantalla en blanco.
+  const errores = []
+  page.on('pageerror', (e) => errores.push(e.message))
+
+  await escribir(`locales/${LOCAL}/mesas/mesa_1`, {
+    estado: 'esperando_cuenta', personas: 2, clientes: ['Cliente'], carrito: [],
+    carrito_bloqueado: true, total_acumulado: 5000, propina: 500,
+    metodo_pago: 'efectivo', abona_con: null,
+  })
+  await entrarComo(page, {
+    email: 'ana@bar.com', nombre: 'Ana', rol: 'encargado', ruta: 'encargado',
+  })
+
+  const pestañas = [
+    ['🏠 Mesas',        /Salón en tiempo real/i],
+    ['☕ Barra',        /Barra|Cafeter/i],
+    ['📋 Carta',        /Menu del dia/i],
+    ['📊 Estadísticas', /Efectivo|Caja|Total/i],
+    ['🕐 Historial',    /Historial|Desde|cierres/i],
+    ['⚙️ Ajustes',      /Titular de la cuenta/i],
+  ]
+
+  for (const [boton, contenido] of pestañas) {
+    await page.getByRole('button', { name: boton }).click()
+    await expect(page.locator('main'), `la pestaña ${boton} no mostro su contenido`)
+      .toContainText(contenido)
+    expect(errores, `la pestaña ${boton} tiro un error al montar`).toEqual([])
+  }
+})

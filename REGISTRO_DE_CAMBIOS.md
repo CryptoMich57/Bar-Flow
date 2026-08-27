@@ -17,6 +17,38 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Accesibilidad y el tamaño de EncargadoPage (AUD-013)
+
+- **IDs:** `AUD-013` (Resuelto, sin desplegar). Queda sólo la revisión de contraste.
+- **Archivos:** `eslint.config.js`, `src/components/encargado/` (nuevo: `PestanaEstadisticas`,
+  `PestanaAjustes`, `PestanaHistorial`), `src/pages/EncargadoPage.jsx`, `MesaPage.jsx`,
+  `MozoPage.jsx`, `RegistroPage.jsx`, `EquipoDelLocal.jsx`, `tests/e2e/personal.spec.js`.
+- **Cambio:** dos cosas.
+
+  **Accesibilidad, con herramienta y no a ojo.** Se agregó `eslint-plugin-jsx-a11y`, que corre
+  en la CI. Encontró 23 problemas reales: **16 etiquetas sin control asociado** —había 28
+  `<input>` en la app y **cero `htmlFor`**, o sea cajas sin nombre para un lector de pantalla—,
+  dos grupos de botones etiquetados con `<label>` cuando lo correcto es `role="group"` +
+  `aria-labelledby`, y el modal de llamar al mozo, que no se podía cerrar con teclado: tocar el
+  fondo era la única salida. Ahora cierra con Escape y el fondo dejó de necesitar
+  `stopPropagation` —comparando el target, el clic adentro ni siquiera cuenta como clic afuera—.
+
+  Se dejó `no-autofocus` apagado con la razón escrita: los tres casos son pantallas cuyo único
+  propósito es escribir ese campo, y quien acaba de escanear un QR agradece no apuntarle al
+  input.
+
+  **`EncargadoPage.jsx` pasó de 1071 a 925 líneas.** Estadísticas, ajustes e historial salieron
+  a componentes propios. **Antes de tocar el archivo se escribió la red**: un recorrido que abre
+  las seis pestañas y verifica que cada una muestre su contenido sin errores. Ninguna prueba las
+  tocaba. Las mesas y la barra se quedan: están entretejidas con el estado de la página y
+  separarlas exigiría pasar diez props o mover el estado a un hook.
+- **Validación:** `npm run test:e2e` → **13/13** (una nueva); reglas 45/45; funciones 40/40;
+  unidad 13/13; `npx eslint .` 0 errores; `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. Queda la revisión de contraste, que necesita ojo
+  humano sobre el diseño y no una regla de lint. **Este cambio no toca reglas ni Functions:
+  alcanza con desplegar hosting.**
+
+
 ### 2026-08-27 — Claude — Costos, listeners y errores que no se veían (AUD-011)
 
 - **IDs:** `AUD-011` (Mayormente resuelto, sin desplegar). Cierra además el residuo de

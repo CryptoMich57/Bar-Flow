@@ -889,7 +889,7 @@ rutas de personal después de corregir el bloqueo de `MozoPage` registrado en `A
 
 ### AUD-013 — P2 Medio — Entrega, PWA, mantenibilidad y accesibilidad incompletas
 
-**Estado:** Parcialmente resuelto (2026-08-27) — quedan mantenibilidad y accesibilidad
+**Estado:** Resuelto (2026-08-27) — queda sólo la revisión de contraste
 
 **Nota (2026-08-24):** la **CI** se sigue en este hallazgo, trasladada desde `AUD-010`. El
 pipeline que se pide acá tiene que ejecutar `npm run lint`, `npm test` y `npm run build`
@@ -950,9 +950,42 @@ paso de Functions reintenta una vez: el emulador tiene un arranque flaky conocid
 tres corridas no llega a levantar y las 40 pruebas quedan sin respuesta— y **una CI que falla
 al azar deja de mirarse**, que es peor que no tenerla.
 
-**Lo que queda de este hallazgo:** `EncargadoPage.jsx` sigue teniendo más de 900 líneas y la
-revisión de accesibilidad (labels asociados, foco, teclado, contraste) no se hizo. Ninguna de
-las dos es de riesgo; son de mantenibilidad.
+**Segunda pasada (2026-08-27) — accesibilidad y tamaño.** Con esto el hallazgo queda cerrado
+salvo el contraste.
+
+**Accesibilidad.** En vez de revisar a ojo se agregó `eslint-plugin-jsx-a11y`, que corre en la
+CI y evita que vuelva. Encontró 23 problemas reales:
+
+- **16 etiquetas sin control asociado.** Había 28 `<input>` en la app y **cero `htmlFor`**: para
+  un lector de pantalla eran cajas sin nombre. Ahora cada etiqueta apunta a su campo.
+- **Dos grupos de botones etiquetados con `<label>`** —"¿Cuántas personas son?" y la selección de
+  mesa del mozo—. Un `<label>` sobre botones no asocia nada, porque no hay control que asociar;
+  pasaron a `role="group"` + `aria-labelledby`, y los botones a `aria-pressed` para que se
+  entienda cuál está elegido.
+- **El modal de llamar al mozo no se podía cerrar con teclado.** Tocar el fondo era la única
+  salida. Ahora cierra con Escape, es un `role="dialog"` con nombre, y el fondo dejó de necesitar
+  `stopPropagation`: comparando el target, el clic adentro ni siquiera cuenta como clic afuera.
+- **Los botones `+` y `−` de la carta** decían sólo "+", sin decir de qué producto, y había uno
+  por ítem. Esto ya se había arreglado al escribir los recorridos de `AUD-014`.
+
+Se dejó `no-autofocus` apagado, con la razón escrita: los tres casos son pantallas cuyo único
+propósito es escribir ese campo —"¿cómo te llamás?", "¿cómo se llama tu bar?"— y quien acaba de
+escanear un QR agradece no tener que apuntarle al input. La regla apunta a formularios largos
+donde el foco salta sin avisar.
+
+**Tamaño.** `EncargadoPage.jsx` pasó de **1071 a 925 líneas**: estadísticas, ajustes e historial
+salieron a `src/components/encargado/`. **Antes de tocar el archivo se escribió la red**: un
+recorrido que abre las seis pestañas y verifica que cada una muestre su contenido sin errores.
+Ninguna prueba las tocaba, y un error al renderizar cualquiera deja esa mitad de la pantalla en
+blanco.
+
+Las tres que se fueron son las que sólo dibujan lo que reciben. Las mesas y la barra se quedan
+porque están entretejidas con el estado de la página —la mesa seleccionada, los pedidos, el
+chat— y separarlas exigiría pasar diez props o mover el estado a un hook, que es más cirugía de
+la que este hallazgo justifica.
+
+**Lo único que queda:** la revisión de contraste, que necesita ojo humano sobre el diseño y no
+una regla de lint.
 
 ### AUD-014 — P1 Alto — Sin pruebas automatizadas de interfaz ni de sesiones reales
 

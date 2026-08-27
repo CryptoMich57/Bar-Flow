@@ -16,7 +16,9 @@ import {
   colCarta, refItemCarta,
 } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
-import EquipoDelLocal from '../components/EquipoDelLocal'
+import PestanaEstadisticas from '../components/encargado/PestanaEstadisticas'
+import PestanaAjustes from '../components/encargado/PestanaAjustes'
+import PestanaHistorial from '../components/encargado/PestanaHistorial'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
 import { buscarCierres, cierresDeHoy, borrarCierres, TOPE_HISTORIAL } from '../firebase/historial'
@@ -800,10 +802,10 @@ export default function EncargadoPage() {
                   </select>
                   {nuevoItem.categoria === 'promocion' && (
                     <div style={{gridColumn:'1/-1'}}>
-                      <label style={{fontSize:'0.78em',color:'var(--text2)',display:'block',marginBottom:4}}>
+                      <label style={{fontSize:'0.78em',color:'var(--text2)',display:'block',marginBottom:4}} htmlFor="enc-a-donde-va-este-pedido">
                         ¿A dónde va este pedido?
                       </label>
-                      <select className="input" value={nuevoItem.destino||'cocina'} onChange={e => setNuevoItem(p=>({...p,destino:e.target.value}))}>
+                      <select id="enc-a-donde-va-este-pedido" className="input" value={nuevoItem.destino||'cocina'} onChange={e => setNuevoItem(p=>({...p,destino:e.target.value}))}>
                         <option value="cocina">👨‍🍳 Cocina — menú del día, combos con comida</option>
                         <option value="encargado">☕ Encargado/Barra — licuados, cafés especiales</option>
                         <option value="mozo">🥤 Mozo — bebidas simples, sin preparación</option>
@@ -836,8 +838,8 @@ export default function EncargadoPage() {
                             <input className="input" placeholder="Precio" type="number" value={editandoItem.precio} onChange={e => setEditandoItem(p=>({...p,precio:Number(e.target.value)}))} />
                             {editandoItem.categoria === 'promocion' && (
                               <div style={{gridColumn:'1/-1'}}>
-                                <label style={{fontSize:'0.78em',color:'var(--text2)',display:'block',marginBottom:4}}>¿A dónde va este pedido?</label>
-                                <select className="input" value={editandoItem.destino||'cocina'} onChange={e => setEditandoItem(p=>({...p,destino:e.target.value}))}>
+                                <label style={{fontSize:'0.78em',color:'var(--text2)',display:'block',marginBottom:4}} htmlFor="enc-a-donde-va-este-pedido-2">¿A dónde va este pedido?</label>
+                                <select id="enc-a-donde-va-este-pedido-2" className="input" value={editandoItem.destino||'cocina'} onChange={e => setEditandoItem(p=>({...p,destino:e.target.value}))}>
                                   <option value="cocina">👨‍🍳 Cocina</option>
                                   <option value="encargado">☕ Encargado/Barra</option>
                                   <option value="mozo">🥤 Mozo</option>
@@ -883,186 +885,38 @@ export default function EncargadoPage() {
 
         {/* ════════════════ TAB ESTADÍSTICAS ════════════════ */}
         {tab === 'estadisticas' && (
-          <div className={styles.statsContainer}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-              <h2 className={styles.sectionTitle} style={{marginBottom:0}}>Estadísticas del día</h2>
-              <button className={styles.agregarBtn} onClick={calcularEstadisticas}>↻ Actualizar</button>
-            </div>
-            {estadisticas ? (
-              <>
-                <div className={styles.statsGrid}>
-                  <div className={styles.statCard}>
-                    <span className={styles.statIcon}>💵</span>
-                    <span className={styles.statLabel}>Efectivo</span>
-                    <span className={styles.statValor}>${estadisticas.efectivo.toLocaleString()}</span>
-                  </div>
-                  <div className={styles.statCard}>
-                    <span className={styles.statIcon}>💳</span>
-                    <span className={styles.statLabel}>Tarjeta</span>
-                    <span className={styles.statValor}>${estadisticas.tarjeta.toLocaleString()}</span>
-                  </div>
-                  <div className={styles.statCard}>
-                    <span className={styles.statIcon}>📲</span>
-                    <span className={styles.statLabel}>Transferencia</span>
-                    <span className={styles.statValor}>${estadisticas.transferencia.toLocaleString()}</span>
-                  </div>
-                  <div className={styles.statCard}>
-                    <span className={styles.statIcon}>🙏</span>
-                    <span className={styles.statLabel}>Propinas</span>
-                    <span className={styles.statValor} style={{color:'var(--green)'}}>+${estadisticas.propinas.toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className={styles.statTotal}>
-                  <span>TOTAL DEL DÍA</span>
-                  <span>${estadisticas.total.toLocaleString()}</span>
-                </div>
-                <div className={styles.statMesas}>
-                  {estadisticas.mesas} mesa{estadisticas.mesas!==1?'s':''} atendida{estadisticas.mesas!==1?'s':''}
-                </div>
-              </>
-            ) : (
-              <p className={styles.empty}>Cargando estadísticas...</p>
-            )}
-          </div>
+          <PestanaEstadisticas
+            estadisticas={estadisticas}
+            onActualizar={calcularEstadisticas}
+          />
         )}
 
         {/* ════════════════ TAB AJUSTES ════════════════ */}
         {tab === 'ajustes' && (
-          <div className={styles.ajustesContainer}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
-              <h2 className={styles.sectionTitle} style={{marginBottom:0}}>⚙️ Ajustes</h2>
-              {!soporte && (
-                <button
-                  className={styles.guardarBtn}
-                  onClick={guardarAjustes}
-                  disabled={configGuardando}
-                >
-                  {configGuardado ? '✅ Guardado' : configGuardando ? 'Guardando...' : '💾 Guardar cambios'}
-                </button>
-              )}
-            </div>
-
-            {configDB ? (
-              <>
-                {/* ── TRANSFERENCIA ── */}
-                <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>📲 Datos de transferencia</h3>
-                  <p className={styles.ajustesDesc}>El cliente ve estos datos cuando elige pagar por transferencia.</p>
-                  <div className={styles.ajustesGrid}>
-                    <div className={styles.ajustesField}>
-                      <label>Titular de la cuenta</label>
-                      <input className="input" value={configDB.transferencia?.titular || ''}
-                        onChange={e => updateConfig('transferencia.titular', e.target.value)}
-                        placeholder="Nombre del titular" />
-                    </div>
-                    <div className={styles.ajustesField}>
-                      <label>Banco</label>
-                      <input className="input" value={configDB.transferencia?.banco || ''}
-                        onChange={e => updateConfig('transferencia.banco', e.target.value)}
-                        placeholder="Nombre del banco" />
-                    </div>
-                    <div className={styles.ajustesField}>
-                      <label>CBU</label>
-                      <input className="input" value={configDB.transferencia?.cbu || ''}
-                        onChange={e => updateConfig('transferencia.cbu', e.target.value)}
-                        placeholder="22 dígitos" />
-                    </div>
-                    <div className={styles.ajustesField}>
-                      <label>Alias</label>
-                      <input className="input" value={configDB.transferencia?.alias || ''}
-                        onChange={e => updateConfig('transferencia.alias', e.target.value)}
-                        placeholder="alias.de.pago" />
-                    </div>
-                  </div>
-                </div>
-
-
-                {/* ── MESAS ── */}
-                <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>🏠 Cantidad de mesas</h3>
-                  <p className={styles.ajustesDesc}>Cuántas mesas se muestran en el salón. Máximo 30.</p>
-                  <div style={{maxWidth:200}}>
-                    <input className="input" type="number" min="1" max="30"
-                      value={configDB.mesas?.cantidad || 10}
-                      onChange={e => updateConfig('mesas.cantidad', parseInt(e.target.value) || 10)} />
-                  </div>
-                  <p className={styles.ajustesAviso}>⚠️ Este cambio se aplica al recargar la página.</p>
-                </div>
-
-                {/* ── EQUIPO DEL LOCAL ── */}
-                <div className={styles.ajustesSeccion}>
-                  <h3 className={styles.ajustesTitulo}>👥 {soporte ? 'Equipo del local' : 'Tu equipo'}</h3>
-                  {soporte ? (
-                    <p className={styles.ajustesDesc}>
-                      El equipo lo administra el encargado del local. Desde soporte no se
-                      dan de alta ni de baja cuentas.
-                    </p>
-                  ) : (
-                    <EquipoDelLocal localId={localId} cantidadMesas={cantidadMesas} />
-                  )}
-                </div>
-
-                {/* ── INFO SOLO LECTURA ── */}
-                <div className={styles.ajustesSeccion} style={{opacity:0.6}}>
-                  <h3 className={styles.ajustesTitulo}>🔐 Tu cuenta</h3>
-                  <p className={styles.ajustesDesc}>El plan y el estado los administra Hexa Group.</p>
-                  <div className={styles.ajustesReadOnly}>
-                    <span>Local: <strong>{nombreBar}</strong></span>
-                    <span>Identificador: <strong>{localId}</strong></span>
-                    <span>Estado: <strong>{local?.estado || '—'}</strong></span>
-                    <span>Link de las mesas: <strong>/l/{localId}/mesa/1</strong></span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div style={{textAlign:'center', padding:'48px 24px', color:'var(--text3)'}}>
-                <p style={{fontSize:'1.5em', marginBottom:8}}>⏳</p>
-                <p>Cargando configuración...</p>
-              </div>
-            )}
-          </div>
+          <PestanaAjustes
+            configDB={configDB}
+            soporte={soporte}
+            localId={localId}
+            local={local}
+            nombreBar={nombreBar}
+            cantidadMesas={cantidadMesas}
+            configGuardando={configGuardando}
+            configGuardado={configGuardado}
+            onGuardar={guardarAjustes}
+            onCambiar={updateConfig}
+          />
         )}
 
         {/* ════════════════ TAB HISTORIAL ════════════════ */}
         {tab === 'historial' && (
-          <div className={styles.historialContainer}>
-            <h2 className={styles.sectionTitle}>Historial</h2>
-
-            {/* Filtros */}
-            <div className={styles.filtros}>
-              <div className={styles.filtroGrupo}>
-                <label className={styles.filtroLabel}>Desde</label>
-                <input className="input" type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)} />
-              </div>
-              <div className={styles.filtroGrupo}>
-                <label className={styles.filtroLabel}>Hasta</label>
-                <input className="input" type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)} />
-              </div>
-              <button className={styles.agregarBtn} onClick={() => cargarHistorial(filtroDesde||null, filtroHasta||null)}>
-                Filtrar
-              </button>
-              {!soporte && historial.length > 0 && (
-                <button className={styles.borrarBtn} onClick={borrarHistorialFiltrado}>🗑️ Borrar filtrado</button>
-              )}
-            </div>
-
-            {historial.length === 0
-              ? <p className={styles.empty}>No hay registros</p>
-              : historial.map(h => (
-                <div key={h.id} className={styles.historialCard}>
-                  <div className={styles.historialHeader}>
-                    <span>Mesa {h.mesa_id} — {h.clientes?.join(', ')} · {h.personas} persona{h.personas!==1?'s':''}</span>
-                    <span style={{color:'var(--text2)',fontSize:'0.78em'}}>
-                      {h.fecha_hora_cierre?.toDate?.()?.toLocaleString?.('es-AR')}
-                    </span>
-                  </div>
-                  <div className={styles.historialRow}><span>Total cobrado</span><span style={{color:'var(--gold)'}}>${h.total_cobrado?.toLocaleString()}</span></div>
-                  {h.propina>0 && <div className={styles.historialRow}><span>Propina</span><span style={{color:'var(--green)'}}>+${h.propina?.toLocaleString()}</span></div>}
-                  <div className={styles.historialRow}><span>Método</span><span>{h.metodo_pago}</span></div>
-                </div>
-              ))
-            }
-          </div>
+          <PestanaHistorial
+            historial={historial}
+            soporte={soporte}
+            filtroDesde={filtroDesde} setFiltroDesde={setFiltroDesde}
+            filtroHasta={filtroHasta} setFiltroHasta={setFiltroHasta}
+            onFiltrar={() => cargarHistorial(filtroDesde || null, filtroHasta || null)}
+            onBorrarFiltrado={borrarHistorialFiltrado}
+          />
         )}
 
       </main>

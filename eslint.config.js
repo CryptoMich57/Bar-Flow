@@ -2,6 +2,7 @@ import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
@@ -15,6 +16,10 @@ export default defineConfig([
       // esta version: por eso eslint reventaba al arrancar.
       reactHooks.configs['recommended-latest'],
       reactRefresh.configs.vite,
+      // Accesibilidad (AUD-013). No es una lista de buenas intenciones: un
+      // input sin etiqueta asociada es, para un lector de pantalla, una caja
+      // sin nombre. Habia 28 inputs en la app y ninguno con htmlFor.
+      jsxA11y.flatConfigs.recommended,
     ],
     languageOptions: {
       ecmaVersion: 2020,
@@ -34,6 +39,12 @@ export default defineConfig([
       // muerta temporal, y ni el build ni los tests de reglas lo ven: el
       // archivo compila igual. Paso una vez con misMesas en el array de
       // dependencias de un useEffect y dejo la vista del mozo en blanco.
+      // El autoFocus queda: los tres casos son pantallas cuyo unico proposito
+      // es escribir ese campo —"¿como te llamas?", "¿como se llama tu bar?"—
+      // y quien acaba de escanear un QR con el telefono en la mano agradece
+      // no tener que apuntarle al input. La regla apunta a formularios largos
+      // donde el foco salta sin avisar, que no es el caso.
+      'jsx-a11y/no-autofocus': 'off',
       'no-use-before-define': ['error', {
         functions: false,   // las funciones se izan; declararlas abajo es normal
         variables: true,

@@ -109,6 +109,15 @@ export default function MesaPage() {
     return unsub
   }, [localId, mesaId, paso])
 
+  // Escape cierra el modal. Sin esto, quien no usa mouse quedaba adentro:
+  // tocar el fondo era la unica forma de salir sin llamar al mozo.
+  useEffect(() => {
+    if (!showLlamarMozo) return
+    const alTeclado = (e) => { if (e.key === 'Escape') setShowLlamarMozo(false) }
+    window.addEventListener('keydown', alTeclado)
+    return () => window.removeEventListener('keydown', alTeclado)
+  }, [showLlamarMozo])
+
   useEffect(() => {
     tabRef.current = tab
     if (tab === 'mensajes') setChatSinLeer(false)
@@ -298,13 +307,15 @@ export default function MesaPage() {
         <img src={logo} alt="Logo" className={styles.miniLogo} onError={e => e.target.style.display='none'} />
         <h2 className={styles.nombreTitle}>{textos.nombre.titulo}</h2>
         <p className={styles.nombreSub}>Mesa {mesaId} · {nombreBar}</p>
-        <label className={styles.inputLabel}>Tu nombre o el del grupo</label>
-        <input className="input" placeholder="Ej: Mesa de Juan" value={nombre}
+        <label className={styles.inputLabel} htmlFor="mesa-tu-nombre-o-el-del-grupo">Tu nombre o el del grupo</label>
+        <input id="mesa-tu-nombre-o-el-del-grupo" className="input" placeholder="Ej: Mesa de Juan" value={nombre}
           onChange={e => setNombre(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEntrarNombre()} autoFocus />
-        <label className={styles.inputLabel} style={{marginTop:16}}>¿Cuántas personas son?</label>
-        <div className={styles.personasRow}>
+        <span id="mesa-cuantas-personas" className={styles.inputLabel}
+          style={{marginTop:16, display:'block'}}>¿Cuántas personas son?</span>
+        <div className={styles.personasRow} role="group" aria-labelledby="mesa-cuantas-personas">
           {[1,2,3,4,5,6,7,8].map(n => (
-            <button key={n} className={`${styles.personaBtn} ${personas===n?styles.personaBtnActivo:''}`}
+            <button key={n} aria-pressed={personas===n}
+              className={`${styles.personaBtn} ${personas===n?styles.personaBtnActivo:''}`}
               onClick={() => setPersonas(n)}>{n}</button>
           ))}
         </div>
@@ -365,16 +376,25 @@ export default function MesaPage() {
 
       {/* Modal llamar mozo */}
       {showLlamarMozo && (
-        <div className={styles.modalOverlay} onClick={() => setShowLlamarMozo(false)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <h3 className={styles.modalTitle}>✋ Llamar al mozo</h3>
+        // Cerrar tocando afuera es una comodidad del mouse; el camino de
+        // teclado es Escape, mas arriba. El fondo no se anuncia.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div className={styles.modalOverlay}
+          onClick={e => { if (e.target === e.currentTarget) setShowLlamarMozo(false) }}>
+          <div className={styles.modal} role="dialog" aria-modal="true"
+            aria-labelledby="mesa-titulo-llamar">
+            <h3 className={styles.modalTitle} id="mesa-titulo-llamar">✋ Llamar al mozo</h3>
             <p className={styles.modalSub}>¿Qué necesitás?</p>
-            <div className={styles.notasRapidas}>
+            <div className={styles.notasRapidas} role="group" aria-label="Motivos frecuentes">
               {['Me falta hielo','Me falta un cubierto','Me falta una servilleta','Tengo una consulta'].map(nota => (
-                <button key={nota} className={styles.notaRapida} onClick={() => setNotaMozo(nota)}>{nota}</button>
+                <button key={nota} className={styles.notaRapida}
+                  aria-pressed={notaMozo===nota}
+                  onClick={() => setNotaMozo(nota)}>{nota}</button>
               ))}
             </div>
-            <input className="input" style={{marginTop:10}} placeholder="O escribí lo que necesitás..."
+            <input className="input" style={{marginTop:10}}
+              aria-label="Escribí lo que necesitás"
+              placeholder="O escribí lo que necesitás..."
               value={notaMozo} onChange={e => setNotaMozo(e.target.value)} />
             <div style={{display:'flex',gap:8,marginTop:12}}>
               <button className="btn btn-ghost" style={{flex:1}} onClick={() => setShowLlamarMozo(false)}>Cancelar</button>

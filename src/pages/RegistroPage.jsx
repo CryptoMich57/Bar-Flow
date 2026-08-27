@@ -102,13 +102,13 @@ export default function RegistroPage() {
               Hola {user.displayName || user.email}. Contanos de tu bar.
             </p>
 
-            <label className={styles.label}>Nombre del bar</label>
-            <input className="input" value={nombreLocal} autoFocus
+            <label className={styles.label} htmlFor="reg-nombre-del-bar">Nombre del bar</label>
+            <input id="reg-nombre-del-bar" className="input" value={nombreLocal} autoFocus
               placeholder="Bar La Esquina"
               onChange={e => cambiarNombre(e.target.value)} />
 
-            <label className={styles.label} style={{marginTop:12}}>Identificador</label>
-            <input className="input" value={localId}
+            <label className={styles.label} style={{marginTop:12}} htmlFor="reg-identificador">Identificador</label>
+            <input id="reg-identificador" className="input" value={localId}
               placeholder="bar-la-esquina"
               onChange={e => {
                 setLocalIdTocado(true)

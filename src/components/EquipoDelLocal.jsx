@@ -272,15 +272,15 @@ export default function EquipoDelLocal({ localId, cantidadMesas = 10 }) {
         <form className="card" style={{marginTop:12}} onSubmit={handleInvitar}>
           <h4 style={{margin:'0 0 12px', color:'var(--gold)'}}>Invitar a alguien</h4>
 
-          <label style={{color:'var(--text2)', fontSize:'0.8em'}}>Nombre</label>
-          <input className="input" value={nombre} autoFocus
+          <label style={{color:'var(--text2)', fontSize:'0.8em'}} htmlFor="eq-nombre">Nombre</label>
+          <input id="eq-nombre" className="input" value={nombre} autoFocus
             placeholder="Nombre y apellido"
             onChange={e => { setNombre(e.target.value); setError(null) }} />
 
-          <label style={{color:'var(--text2)', fontSize:'0.8em', display:'block', marginTop:10}}>
+          <label style={{color:'var(--text2)', fontSize:'0.8em', display:'block', marginTop:10}} htmlFor="eq-email-de-su-cuenta-de-google">
             Email de su cuenta de Google
           </label>
-          <input className="input" type="email" value={email}
+          <input id="eq-email-de-su-cuenta-de-google" className="input" type="email" value={email}
             placeholder="persona@gmail.com"
             onChange={e => { setEmail(e.target.value); setError(null) }} />
           <p style={{color:'var(--text3)', fontSize:'0.72em', margin:'6px 0 0'}}>
@@ -288,8 +288,8 @@ export default function EquipoDelLocal({ localId, cantidadMesas = 10 }) {
             cuenta, la app no la va a reconocer.
           </p>
 
-          <label style={{color:'var(--text2)', fontSize:'0.8em', display:'block', marginTop:10}}>Rol</label>
-          <select className="input" value={rol} onChange={e => setRol(e.target.value)}>
+          <label style={{color:'var(--text2)', fontSize:'0.8em', display:'block', marginTop:10}} htmlFor="eq-rol">Rol</label>
+          <select id="eq-rol" className="input" value={rol} onChange={e => setRol(e.target.value)}>
             {ROLES.map(r => <option key={r} value={r}>{ETIQUETA_ROL[r]}</option>)}
           </select>
           <p style={{color:'var(--text3)', fontSize:'0.72em', margin:'6px 0 0'}}>{ROL_DESC[rol]}</p>
