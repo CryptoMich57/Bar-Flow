@@ -86,6 +86,21 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 - **Pendiente / riesgos:** sin desplegar. El sonido sigue sin ser configurable por local
   (volumen, o silenciar). Si hace falta, va como ajuste del encargado.
 
+### Nota de despliegue — cuando una regla se vuelve más estricta, primero va el hosting
+
+`AUD-016` agregó una regla que **rechaza un mensaje de chat sin el campo `rol`**. La app es
+una PWA con `registerType: 'autoUpdate'`, así que un celular que ya la tenga abierta sigue
+corriendo la versión vieja hasta que la recargue.
+
+Si se despliegan las reglas antes que el hosting, esos clientes viejos mandan mensajes sin
+`rol` y se los rechaza: el chat les falla hasta que actualicen. El orden correcto es
+
+    firebase deploy --only hosting
+    firebase deploy --only firestore:rules
+
+y vale como criterio general: **una regla que empieza a exigir algo nuevo se despliega después
+del código que lo manda**. Al revés —una regla que se afloja— el orden no importa.
+
 ### Nota de infraestructura — el emulador de Functions arranca flaky
 
 Corriendo `npm run test:funciones` tres veces seguidas, una falló con **las 25 pruebas** en
