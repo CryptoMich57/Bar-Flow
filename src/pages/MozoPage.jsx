@@ -473,7 +473,7 @@ export default function MozoPage() {
             <label className={styles.inputLabel}>Mesa</label>
             <div className={styles.mesasBtns}>
               {misMesas.map(num => (
-                <button key={num}
+                <button key={num} aria-label={`Mesa ${num}`}
                   className={`${styles.mesaNumBtn} ${mesaPedido===num?styles.mesaNumActivo:''}`}
                   onClick={() => setMesaPedido(num)}>
                   {num}
@@ -516,12 +516,15 @@ export default function MozoPage() {
                       <div className={styles.itemControles}>
                         {cant > 0 ? (
                           <>
-                            <button className={styles.contBtn} onClick={() => quitarDelCarritoMozo(item.id)}>−</button>
+                            <button className={styles.contBtn} aria-label={`Quitar uno de ${item.nombre}`}
+                              onClick={() => quitarDelCarritoMozo(item.id)}>−</button>
                             <span className={styles.contNum}>{cant}</span>
-                            <button className={styles.contBtn} onClick={() => agregarAlCarritoMozo(item)}>+</button>
+                            <button className={styles.contBtn} aria-label={`Agregar otro ${item.nombre}`}
+                              onClick={() => agregarAlCarritoMozo(item)}>+</button>
                           </>
                         ) : (
-                          <button className={styles.addBtn} onClick={() => agregarAlCarritoMozo(item)}>+</button>
+                          <button className={styles.addBtn} aria-label={`Agregar ${item.nombre}`}
+                            onClick={() => agregarAlCarritoMozo(item)}>+</button>
                         )}
                       </div>
                     </div>

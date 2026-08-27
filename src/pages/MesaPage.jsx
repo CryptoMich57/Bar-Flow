@@ -445,9 +445,11 @@ export default function MesaPage() {
                     />
                   </div>
                   <div className={styles.itemControles}>
-                    <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                    <button className={styles.contBtn} aria-label={`Quitar uno de ${item.nombre}`}
+                      onClick={() => quitarItem(item.id)}>−</button>
                     <span className={styles.contNum}>{item.cantidad}</span>
-                    <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                    <button className={styles.contBtn} aria-label={`Agregar otro ${item.nombre}`}
+                      onClick={() => agregarItem(item)}>+</button>
                   </div>
                   <span className={styles.carritoItemPrecio}>${(item.precio*item.cantidad).toLocaleString()}</span>
                 </div>
@@ -485,9 +487,11 @@ export default function MesaPage() {
                     />
                   </div>
                   <div className={styles.itemControles}>
-                    <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                    <button className={styles.contBtn} aria-label={`Quitar uno de ${item.nombre}`}
+                      onClick={() => quitarItem(item.id)}>−</button>
                     <span className={styles.contNum}>{item.cantidad}</span>
-                    <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                    <button className={styles.contBtn} aria-label={`Agregar otro ${item.nombre}`}
+                      onClick={() => agregarItem(item)}>+</button>
                   </div>
                   <span className={styles.carritoItemPrecio}>${(item.precio*item.cantidad).toLocaleString()}</span>
                 </div>
@@ -512,12 +516,15 @@ export default function MesaPage() {
                   <div className={styles.itemControles}>
                     {cant > 0 ? (
                       <>
-                        <button className={styles.contBtn} onClick={() => quitarItem(item.id)}>−</button>
+                        <button className={styles.contBtn} aria-label={`Quitar uno de ${item.nombre}`}
+                          onClick={() => quitarItem(item.id)}>−</button>
                         <span className={styles.contNum}>{cant}</span>
-                        <button className={styles.contBtn} onClick={() => agregarItem(item)}>+</button>
+                        <button className={styles.contBtn} aria-label={`Agregar otro ${item.nombre}`}
+                          onClick={() => agregarItem(item)}>+</button>
                       </>
                     ) : (
-                      <button className={styles.addBtn} onClick={() => agregarItem(item)}>+</button>
+                      <button className={styles.addBtn} aria-label={`Agregar ${item.nombre}`}
+                        onClick={() => agregarItem(item)}>+</button>
                     )}
                   </div>
                 </div>

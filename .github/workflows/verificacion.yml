@@ -67,5 +67,28 @@ jobs:
       - name: Pruebas de Functions
         run: npm run test:funciones || npm run test:funciones
 
+      # El navegador pesa; se cachea por version de Playwright.
+      - name: Cache del navegador
+        uses: actions/cache@v4
+        id: cache-navegador
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Instalar Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Los recorridos: abren la app de verdad contra los emuladores.
+      - name: Pruebas de recorrido
+        run: npm run test:e2e
+
+      - name: Guardar el informe si algo fallo
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-playwright
+          path: playwright-report/
+          retention-days: 7
+
       - name: Build
         run: npm run build

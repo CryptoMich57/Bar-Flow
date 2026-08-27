@@ -17,6 +17,43 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Pruebas que abren la app de verdad (AUD-014)
+
+- **IDs:** `AUD-014` (Mayormente resuelto, sin desplegar).
+- **Archivos:** `playwright.config.js`, `.env.e2e`, `tests/e2e/` (nuevo: `emulador.js`,
+  `humo.spec.js`, `comensal.spec.js`, `personal.spec.js`), `.github/workflows/verificacion.yml`,
+  `src/pages/MesaPage.jsx`, `src/pages/MozoPage.jsx`, `package.json`, `.gitignore`.
+- **Cambio:** suite de recorridos con Playwright contra los emuladores — `npm run test:e2e` —
+  y ya corre en la CI. **12 casos, todos en verde.**
+
+  Lo que hace que valgan: entran por el mismo camino que una persona. El emulador de Auth sirve
+  su propio formulario cuando la app llama a `signInWithPopup`, así que la prueba lo completa en
+  vez de fabricarse un token por atrás. Si mañana se rompe el botón de Google, se caen.
+
+  Cubren: que cada vista **monte** (el error que dejó MozoPage en blanco), el QR de un local
+  inexistente, un local suspendido, el comensal pidiendo con el precio de la carta y el carrito
+  consumido, que no se toque la mesa de al lado, **que el mozo pueda vender una promoción** —el
+  bug que llegó al bar—, que el mozo vea su nombre sin elegirlo, que el encargado cierre la mesa
+  con un solo cobro en la caja, y que quien no trabaja en el local no entre.
+
+  **Un tropiezo que vale anotar.** El caso del encargado falló un buen rato con un locator
+  `/^Mesa 1/`, que **también matchea "Mesa 10"**. Con la configuración cargada hay 4 mesas y no
+  hay ambigüedad; en el instante anterior hay 10 —el valor por defecto— y sí la hay. El síntoma
+  no decía "hay dos elementos": decía que esperaba uno y no aparecía, lo que mandó la búsqueda
+  hacia las reglas y los permisos, que estaban bien.
+
+  De ahí salieron dos mejoras de accesibilidad reales: los botones `+` y `−` de la carta decían
+  sólo "+" para un lector de pantalla, sin decir de qué producto, y en el mozo los botones de
+  mesa eran un número suelto. Ahora todos tienen `aria-label`.
+- **Validación:** `npm run test:e2e` → **12/12**, estable en tres corridas seguidas;
+  `npm run test:reglas` → 45/45; `npm run test:funciones` → 40/40; `npm run test:unidad` →
+  13/13; `npx eslint .` 0 errores; `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. Faltan 5 de los 13 recorridos del hallazgo: registro
+  de un local por interfaz, invitación y canje, modo soporte, navegación entre locales y el
+  aviso de llamadas. La suite corre sólo en Chromium y no cubre dos pestañas a la vez —el
+  encargado y el comensal en la misma mesa—, que es donde viven los avisos de `AUD-016`.
+
+
 ### 2026-08-27 — Claude — Carga por ruta y CI (AUD-013)
 
 - **IDs:** `AUD-013` (Parcialmente resuelto, sin desplegar).

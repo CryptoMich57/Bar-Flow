@@ -912,7 +912,7 @@ las dos es de riesgo; son de mantenibilidad.
 
 ### AUD-014 — P1 Alto — Sin pruebas automatizadas de interfaz ni de sesiones reales
 
-**Estado:** Pendiente
+**Estado:** Mayormente resuelto (2026-08-27) — faltan 5 recorridos de los 13
 
 **Origen:** abierto por Codex el 2026-08-24, a partir del residuo de `AUD-010`. La matriz de
 reglas cubre la frontera de autorización del servidor, pero nada verifica los recorridos que
@@ -940,6 +940,46 @@ automatizados, cada cambio en auth o navegación se valida a mano o no se valida
 | Navegación entre locales | Pasar de un local a otro sin recargar no arrastra datos del anterior. |
 | **Render de cada vista interna** | Que Encargado, Mozo y Cocina **monten**. Un error de zona muerta temporal deja la pantalla en blanco y no lo ve ni el build ni la matriz de reglas. |
 | **Canje de invitación que falla** | Mensaje que diga que falló el canje, no "no estás asociado a ningún local". |
+
+**Respuesta de Claude (2026-08-27):** **Mayormente resuelto.** Hay suite de recorridos:
+Playwright contra los emuladores, con `npm run test:e2e`, y en la CI de `AUD-013`.
+
+Lo que hace que valgan: **entran por el mismo camino que una persona.** El emulador de Auth
+sirve su propio formulario cuando la app llama a `signInWithPopup`, así que la prueba completa
+ese formulario en vez de fabricarse un token por atrás. Si mañana se rompe el botón de Google,
+estas pruebas se caen.
+
+| Recorrido | Estado |
+|---|---|
+| Que cada vista **monte** | ✅ acceso, registro, encargado, mozo, cocina, comensal |
+| QR de un local inexistente / local suspendido | ✅ dice lo que pasa, no falla |
+| El comensal pide, con el precio de la carta | ✅ incluye que el carrito quede consumido |
+| Un comensal no toca la mesa de al lado | ✅ |
+| **El mozo vende una promoción** | ✅ es el bug que llegó al bar, ahora tiene prueba |
+| El mozo ve su nombre y no elige quién es (`AUD-008`) | ✅ |
+| El encargado cierra la mesa: un solo cobro en la caja | ✅ |
+| Quien no trabaja en el local no entra | ✅ |
+| Registro de un local | ⬜ cubierto por Functions, no por interfaz |
+| Invitación y canje | ⬜ |
+| Modo soporte sin botones de acción | ⬜ |
+| Navegación entre locales sin arrastrar datos | ⬜ |
+| Aviso de llamadas: no suena con las viejas, sí con una nueva | ⬜ |
+
+**Un tropiezo que vale anotar, porque es una trampa que se repite.** El caso del encargado
+falló durante un buen rato con un locator `/^Mesa 1/`, que **también matchea "Mesa 10"**. Con
+la configuración cargada hay 4 mesas y no hay ambigüedad; en el instante anterior hay 10 —el
+valor por defecto— y sí la hay. El síntoma no decía "hay dos elementos": decía que esperaba uno
+y no aparecía, lo que mandó la búsqueda hacia las reglas y los permisos, que estaban bien. Las
+tarjetas de mesa se buscan ahora por el texto exacto de su número.
+
+De ahí salieron además dos mejoras de accesibilidad reales, y no como concesión a la prueba:
+los botones `+` y `−` de la carta decían sólo "+" para un lector de pantalla, sin decir de qué
+producto, y en el mozo los botones de mesa eran un número suelto. Ahora todos tienen
+`aria-label`. Es el pedazo de la revisión de accesibilidad de `AUD-013` que este trabajo tocó.
+
+**Riesgo que permanece:** la suite corre sólo en Chromium, y no cubre nada de lo que pasa entre
+dos pestañas a la vez —el encargado y el comensal en la misma mesa—, que es donde viven los
+avisos de `AUD-016`.
 
 **Nota sobre herramientas:** requiere un runner de navegador (Playwright o similar) y una
 estrategia para las sesiones de Google —lo habitual es el emulador de Auth con usuarios
