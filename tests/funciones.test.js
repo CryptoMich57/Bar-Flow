@@ -537,3 +537,233 @@ describe('AUD-009 — dos personas sobre la misma comanda', () => {
     expect(final.total_acumulado).toBe(1600)
   }, PACIENCIA)
 })
+
+// ════════════════════════════════════════════════════════════
+describe('AUD-005 — cerrar la mesa no puede cobrar dos veces', () => {
+  // El cierre escribe la caja del local. Antes eran dos escrituras sueltas
+  // desde el navegador —primero el historial, despues la mesa— y un corte en
+  // el medio dejaba la mesa cobrada pero ocupada: el encargado la veia igual
+  // que antes, volvia a apretar, y quedaban dos cierres del mismo consumo.
+
+  const ana = () => empleado('ana', 'ana@a.com')
+
+  // Deja la mesa como queda despues de una noche: consumo, cuenta pedida y
+  // pedidos cargados.
+  const mesaConsumida = async () => {
+    await llamar('crearPedido', {
+      localId: L, mesaId: '1', clave: 'consumo-previo',
+      items: [{ id: 'cafe', cantidad: 2 }, { id: 'tostado', cantidad: 1 }],
+    }, ana())
+    await llamar('pedirCuenta', {
+      localId: L, mesaId: '1', metodoPago: 'efectivo', propina: 300,
+    }, ana())
+  }
+
+  it('cierra: registra el consumo en la caja y deja la mesa libre', async () => {
+    await mesaConsumida()
+    const r = await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-ok-1' }, ana())
+
+    expect(r.total).toBe(3600)          // 2 x 900 + 1800
+    expect(r.repetido).toBe(false)
+
+    const cierre = await leer(`locales/${L}/historial/cierre-ok-1`)
+    expect(cierre.total_cobrado).toBe(3600)
+    expect(cierre.propina).toBe(300)
+    expect(cierre.metodo_pago).toBe('efectivo')
+    expect(cierre.pedidos_resumen.length).toBe(2)
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(mesa.estado).toBe('libre')
+    expect(mesa.total_acumulado).toBe(0)
+  }, PACIENCIA)
+
+  it('respuesta perdida y reintento con la MISMA clave: un solo cierre', async () => {
+    await mesaConsumida()
+    await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-retry' }, ana())
+    const segundo = await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-retry' }, ana())
+
+    expect(segundo.repetido).toBe(true)
+    const caja = await listar(`locales/${L}/historial`)
+    expect(caja.length).toBe(1)
+    expect(caja[0].total_cobrado).toBe(3600)
+  }, PACIENCIA)
+
+  it('dos dispositivos con claves DISTINTAS: uno solo cierra', async () => {
+    // El caso que la clave sola NO detiene: para el servidor son dos cierres
+    // legitimos y diferentes. Lo que los detiene es que la mesa ya este libre.
+    await mesaConsumida()
+
+    const resultados = await Promise.allSettled([
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-tablet' }, ana()),
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-celular' }, ana()),
+    ])
+    expect(resultados.filter(r => r.status === 'fulfilled').length).toBe(1)
+
+    const caja = await listar(`locales/${L}/historial`)
+    expect(caja.length).toBe(1)
+    expect(caja[0].total_cobrado).toBe(3600)
+  }, PACIENCIA)
+
+  it('cerrar una mesa ya libre no suma nada a la caja', async () => {
+    await mesaConsumida()
+    await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-uno' }, ana())
+    await debeFallar(
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-dos' }, ana()),
+      'ABORTED',
+    )
+    expect((await listar(`locales/${L}/historial`)).length).toBe(1)
+  }, PACIENCIA)
+
+  it('el cierre se lleva pedidos, mensajes y llamadas de la mesa', async () => {
+    await mesaConsumida()
+    await escribir(`locales/${L}/mesas/mesa_1/mensajes/m1`, { texto: 'hola', rol: 'cliente' })
+    await escribir(`locales/${L}/mesas/mesa_1/llamadas/l1`, { estado: 'pendiente' })
+
+    await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-limpio' }, ana())
+
+    // Si quedaran, el proximo cliente que se siente en esa mesa veria los
+    // pedidos del anterior.
+    expect((await listar(`locales/${L}/mesas/mesa_1/pedidos`)).length).toBe(0)
+    expect((await listar(`locales/${L}/mesas/mesa_1/mensajes`)).length).toBe(0)
+    expect((await listar(`locales/${L}/mesas/mesa_1/llamadas`)).length).toBe(0)
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_1`)
+    expect(mesa.limpieza_pendiente ?? null).toBeNull()
+  }, PACIENCIA)
+
+  it('sin registro: libera la mesa y no toca la caja', async () => {
+    // "Se fue sin pagar": no corresponde anotar una venta que no existio.
+    await mesaConsumida()
+    await llamar('cerrarMesa', {
+      localId: L, mesaId: '1', clave: 'cierre-sin-pago', conRegistro: false,
+    }, ana())
+
+    expect((await listar(`locales/${L}/historial`)).length).toBe(0)
+    expect((await leer(`locales/${L}/mesas/mesa_1`)).estado).toBe('libre')
+  }, PACIENCIA)
+
+  it('cerrar la caja es del encargado, no del mozo ni de cocina', async () => {
+    await mesaConsumida()
+    await debeFallar(
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-mozo' },
+        empleado('mario', 'mario@a.com')),
+      'PERMISSION_DENIED',
+    )
+    await debeFallar(
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-cocina' },
+        empleado('kari', 'kari@a.com')),
+      'PERMISSION_DENIED',
+    )
+    await debeFallar(
+      llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-comensal' },
+        comensalEn(L, 1)),
+      'PERMISSION_DENIED',
+    )
+    expect((await listar(`locales/${L}/historial`)).length).toBe(0)
+  }, PACIENCIA)
+
+  it('los renglones cancelados no entran al resumen del cierre', async () => {
+    const pedido = await llamar('crearPedido', {
+      localId: L, mesaId: '1', clave: 'consumo-con-cancelado',
+      items: [{ id: 'cafe', cantidad: 1 }, { id: 'tostado', cantidad: 1 }],
+    }, ana())
+    const items = (await leer(`locales/${L}/mesas/mesa_1/pedidos/${pedido.pedidoId}`)).items
+    await llamar('cancelarItem', {
+      localId: L, mesaId: '1', pedidoId: pedido.pedidoId, rid: items[0].rid,
+    }, ana())
+
+    await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-cancel' }, ana())
+
+    const cierre = await leer(`locales/${L}/historial/cierre-cancel`)
+    expect(cierre.pedidos_resumen.length).toBe(1)
+    expect(cierre.total_cobrado).toBe(1800)   // el cafe cancelado no se cobra
+  }, PACIENCIA)
+
+  it('una limpieza que quedo a medias se retoma en el siguiente intento', async () => {
+    // Simula el corte: la mesa quedo libre y marcada, con pedidos sin borrar.
+    await escribir(`locales/${L}/mesas/mesa_1/pedidos/viejo`, { total: 500, estado: 'pendiente' })
+    await escribir(`locales/${L}/mesas/mesa_1`, {
+      estado: 'libre', total_acumulado: 0, propina: 0,
+      carrito: [], carrito_bloqueado: false, metodo_pago: null,
+      limpieza_pendiente: true,
+    })
+
+    const r = await llamar('cerrarMesa', { localId: L, mesaId: '1', clave: 'cierre-retoma' }, ana())
+    expect(r.repetido).toBe(true)
+    expect((await listar(`locales/${L}/mesas/mesa_1/pedidos`)).length).toBe(0)
+    expect((await listar(`locales/${L}/historial`)).length).toBe(0)
+  }, PACIENCIA)
+})
+
+// ════════════════════════════════════════════════════════════
+describe('AUD-005 — el alta de un local nace entera o no nace', () => {
+  // Antes eran cuatro escrituras sueltas desde el navegador. Un corte en el
+  // medio dejaba un bar sin encargado o sin configuracion, y —lo peor— quien
+  // se registro no podia entrar NI volver a registrarse: el identificador ya
+  // figuraba tomado y nadie sin acceso a la consola lo destrababa.
+
+  const beto = () => empleado('beto', 'beto@nuevo.com')
+
+  it('crea el local, la ficha de encargado, el puntero y la configuracion', async () => {
+    const r = await llamar('registrarLocal', { localId: 'bar-nuevo', nombre: 'Bar Nuevo' }, beto())
+    expect(r.repetido).toBe(false)
+
+    const local = await leer('locales/bar-nuevo')
+    expect(local.owner_uid).toBe('beto')
+    expect(local.estado).toBe('prueba')
+
+    const ficha = await leer('locales/bar-nuevo/empleados/beto')
+    expect(ficha.rol).toBe('encargado')
+    expect(ficha.activo).toBe(true)
+    expect(ficha.email).toBe('beto@nuevo.com')
+
+    expect((await leer('usuarios/beto')).local_id).toBe('bar-nuevo')
+    expect((await leer('locales/bar-nuevo/sistema/configuracion')).mesas.cantidad).toBe(10)
+  }, PACIENCIA)
+
+  it('reintentar el alta propia devuelve lo mismo, no un error', async () => {
+    await llamar('registrarLocal', { localId: 'bar-reintento', nombre: 'Bar' }, beto())
+    const r = await llamar('registrarLocal', { localId: 'bar-reintento', nombre: 'Bar' }, beto())
+    expect(r.repetido).toBe(true)
+    expect(r.localId).toBe('bar-reintento')
+  }, PACIENCIA)
+
+  it('un identificador ya tomado por otra persona se rechaza', async () => {
+    await debeFallar(
+      llamar('registrarLocal', { localId: L, nombre: 'Bar Copia' }, beto()),
+      'ALREADY_EXISTS',
+    )
+    // Y no le piso la ficha de encargado al dueno original.
+    expect((await leer(`locales/${L}`)).owner_uid).toBe('ana')
+  }, PACIENCIA)
+
+  it('dos altas simultaneas del mismo identificador: gana una sola', async () => {
+    const r = await Promise.allSettled([
+      llamar('registrarLocal', { localId: 'bar-carrera', nombre: 'Uno' }, beto()),
+      llamar('registrarLocal', { localId: 'bar-carrera', nombre: 'Dos' },
+        empleado('carla', 'carla@nuevo.com')),
+    ])
+    expect(r.filter(x => x.status === 'fulfilled').length).toBe(1)
+    const ficha = await listar('locales/bar-carrera/empleados')
+    expect(ficha.length).toBe(1)
+  }, PACIENCIA)
+
+  it('rechaza identificadores que no sirven o estan reservados', async () => {
+    for (const localId of ['ab', 'Bar Con Espacios', '-arranca-mal', 'admin', 'registro']) {
+      await debeFallar(llamar('registrarLocal', { localId, nombre: 'Bar' }, beto()), 'INVALID_ARGUMENT')
+    }
+  }, PACIENCIA)
+
+  it('sin email verificado no se registra un local', async () => {
+    // La API de Firebase es publica: cualquiera puede darse de alta por REST
+    // con un email que no le pertenece. Es la misma exigencia de AUD-006.
+    const sinVerificar = token({
+      uid: 'colado', email: 'ana@a.com', email_verified: false,
+      firebase: { sign_in_provider: 'password', identities: {} },
+    })
+    await debeFallar(
+      llamar('registrarLocal', { localId: 'bar-colado', nombre: 'Bar' }, sinVerificar),
+      'PERMISSION_DENIED',
+    )
+  }, PACIENCIA)
+})

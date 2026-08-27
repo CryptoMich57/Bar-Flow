@@ -355,6 +355,70 @@ describe('AUD-006 — el email tiene que estar verificado', () => {
 
 // ════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+describe('AUD-005 — la caja del local solo la escribe el backend', () => {
+  // El historial es la contabilidad: cada documento es cuanto se cobro en
+  // una mesa. Mientras el cierre corria en el navegador, cualquier empleado
+  // podia crear uno con el total que quisiera, sin que existiera consumo.
+
+  it('ni el encargado puede escribir un cierre a mano', async () => {
+    const d = db(conGoogle('ana', 'ana@a.com'))
+    await assertFails(setDoc(doc(historial(d, 'bar-a')), {
+      total_cobrado: 999999, mesa_id: '1', metodo_pago: 'efectivo',
+    }))
+  })
+
+  it('ni modificar uno existente', async () => {
+    await entorno.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'locales', 'bar-a', 'historial', 'c1'),
+        { total_cobrado: 3600 })
+    })
+    const d = db(conGoogle('ana', 'ana@a.com'))
+    await assertFails(updateDoc(doc(d, 'locales', 'bar-a', 'historial', 'c1'),
+      { total_cobrado: 100 }))
+  })
+
+  it('borrar el historial viejo sigue siendo del encargado', async () => {
+    // Es una funcion real de Ajustes: limpiar cierres antiguos.
+    await entorno.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'locales', 'bar-a', 'historial', 'c1'),
+        { total_cobrado: 3600 })
+    })
+    await assertFails(deleteDoc(doc(db(conGoogle('mario', 'mario@a.com')),
+      'locales', 'bar-a', 'historial', 'c1')))
+    await assertSucceeds(deleteDoc(doc(db(conGoogle('ana', 'ana@a.com')),
+      'locales', 'bar-a', 'historial', 'c1')))
+  })
+
+  it('el personal opera la mesa pero no mueve el total', async () => {
+    await entorno.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(mesa(ctx.firestore(), 'bar-a', 1),
+        { ...MESA_RECIEN_ABIERTA, total_acumulado: 3600 })
+    })
+    const d = db(conGoogle('mario', 'mario@a.com'))
+    // Lo que el mozo si hace: marcar la mesa como cobrada.
+    await assertSucceeds(updateDoc(mesa(d, 'bar-a', 1), { estado: 'cuenta_cobrada' }))
+    // Lo que no: bajar el total, o inventarse una propina.
+    await assertFails(updateDoc(mesa(d, 'bar-a', 1), { total_acumulado: 0 }))
+    await assertFails(updateDoc(mesa(d, 'bar-a', 1), { propina: 50000 }))
+    // Con `false` no serviria: la mesa ya lo tiene en false y escribir el
+    // mismo valor no cuenta como cambio para diff().affectedKeys().
+    await assertFails(updateDoc(mesa(d, 'bar-a', 1), { carrito_bloqueado: true }))
+  })
+
+  it('nadie borra pedidos desde el navegador', async () => {
+    // La limpieza al cerrar la mesa es del backend y va paginada. Un
+    // comensal borrando pedidos se borraba su propia cuenta.
+    await entorno.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'locales', 'bar-a', 'mesas', 'mesa_1', 'pedidos', 'p1'),
+        { total: 900 })
+    })
+    const ruta = (d) => doc(d, 'locales', 'bar-a', 'mesas', 'mesa_1', 'pedidos', 'p1')
+    await assertFails(deleteDoc(ruta(db(comensalDe('bar-a', 1)))))
+    await assertFails(deleteDoc(ruta(db(conGoogle('ana', 'ana@a.com')))))
+  })
+})
+
 describe('El rol del mensaje no se puede falsear', () => {
   // La vista decide que avisar segun el rol. Si un comensal pudiera
   // escribir rol:'staff', se dibujaria como personal del local dentro del

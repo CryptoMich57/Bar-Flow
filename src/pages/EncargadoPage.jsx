@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { suscribirPedidos, suscribirMensajes, enviarMensaje, liberarMesa, suscribirUltimoMensaje } from '../firebase/mesa'
+import { suscribirPedidos, suscribirMensajes, enviarMensaje, cerrarMesa, suscribirUltimoMensaje } from '../firebase/mesa'
 import { llamarBackend } from '../firebase/funciones'
 import {
   onSnapshot, updateDoc, query, orderBy,
-  getDocs, writeBatch, serverTimestamp, addDoc,
+  getDocs, writeBatch, addDoc,
   deleteDoc, getDoc
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
@@ -350,27 +350,19 @@ export default function EncargadoPage() {
   }
 
   // ── Confirmar pago y liberar mesa ────────────────────────────────────────────
+  // El cierre lo arma el backend en una sola transaccion: el registro en la
+  // caja y la mesa libre van juntos o no va ninguno. Antes eran dos
+  // escrituras y un corte en el medio permitia cobrar dos veces lo mismo.
   const confirmarPagoYLiberar = async (mesaId) => {
     const mesa = mesas[mesaId]
     if (!mesa) return
     if (!window.confirm(`¿Confirmar pago y liberar Mesa ${mesaId}?`)) return
     try {
-      await addDoc(colHistorial(localId), {
-        mesa_id: mesaId,
-        fecha_hora_apertura: mesa.hora_apertura,
-        fecha_hora_cierre: serverTimestamp(),
-        clientes: mesa.clientes || [],
-        personas: mesa.personas || 1,
-        pedidos_resumen: pedidos.map(p => p.items).flat(),
-        total_cobrado: mesa.total_acumulado || 0,
-        propina: mesa.propina || 0,
-        metodo_pago: mesa.metodo_pago || '',
-        abona_con: mesa.abona_con || null,
-      })
-      await liberarMesa(localId, mesaId)
+      const r = await cerrarMesa(localId, mesaId)
+      if (r?.repetido) notif('Esa mesa ya estaba cerrada. No se cobro de nuevo.', 'Yellow', 5000)
       setMesaSeleccionada(null); setPedidos([]); setMensajes([]); setLlamadas([])
     } catch (e) {
-      alert('Error al liberar mesa: ' + e.message)
+      notif(`No se pudo cerrar la mesa: ${e.message}`, 'Red', 6000)
       console.error(e)
     }
   }
@@ -379,10 +371,10 @@ export default function EncargadoPage() {
   const resetearMesaSinPago = async (mesaId) => {
     if (!window.confirm(`¿Resetear Mesa ${mesaId} sin registro? Se perderán todos los datos.`)) return
     try {
-      await liberarMesa(localId, mesaId)
+      await cerrarMesa(localId, mesaId, { conRegistro: false })
       setMesaSeleccionada(null); setPedidos([]); setMensajes([]); setLlamadas([])
     } catch (e) {
-      alert('Error: ' + e.message)
+      notif(`No se pudo liberar la mesa: ${e.message}`, 'Red', 6000)
     }
   }
 

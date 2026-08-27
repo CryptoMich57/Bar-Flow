@@ -17,6 +17,48 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Cerrar la mesa ya no puede cobrar dos veces (AUD-005)
+
+- **IDs:** `AUD-005` (Resuelto, sin desplegar).
+- **Archivos:** `functions/index.js`, `src/firebase/mesa.js`, `src/firebase/locales.js`,
+  `src/pages/EncargadoPage.jsx`, `firestore.rules`, `tests/funciones.test.js`,
+  `tests/reglas.test.js`.
+- **Cambio:** tres operaciones que se podían cortar por la mitad.
+
+  **El cierre de mesa** era el caro: primero el registro en el historial, después la mesa a
+  libre. Un corte en el medio dejaba la mesa cobrada pero ocupada; el encargado la veía igual
+  que antes, volvía a apretar, y quedaban **dos cierres del mismo consumo en la caja**. Ahora
+  es `cerrarMesa` en el backend, con dos candados: la clave de idempotencia (el mismo intento
+  cae en el mismo documento) y el estado de la mesa (dos dispositivos con claves distintas los
+  detiene que la mesa ya esté libre). La limpieza de pedidos, mensajes y llamadas quedó fuera
+  de la transacción a propósito —es higiene, no plata— va paginada y se retoma si quedó a
+  medias. Antes iba todo en un batch de 500 escrituras: una mesa con una noche larga encima no
+  se podía cerrar.
+
+  **El alta de un local** escribía cuatro documentos sueltos. Un corte dejaba un bar sin
+  encargado o sin configuración, y quien se registró no podía entrar ni volver a registrarse
+  porque el identificador ya figuraba tomado. Pasó al backend en un solo batch. No alcanzaba
+  con hacer el batch desde el navegador: la regla que autoriza la ficha de encargado pregunta
+  por el dueño del local, y dentro de un batch esa lectura no ve el local que el mismo batch
+  está creando.
+
+  **El canje de invitación** sí se resolvió con un `writeBatch` del lado del cliente, y la
+  diferencia con el caso anterior es justamente esa: la regla pregunta por la invitación, y las
+  reglas se evalúan contra el estado previo al batch.
+
+  **Reglas endurecidas.** El historial es la contabilidad del local y hasta ahora cualquier
+  empleado podía crear un cierre con el total que quisiera: ahora es sólo del backend. Igual el
+  borrado de pedidos. Y el personal opera la mesa pero ya no mueve `total_acumulado` ni
+  `propina`: ese permiso existía únicamente porque el cierre corría en el navegador.
+- **Validación:** `npm run test:funciones` → **40/40** (15 nuevas); `npm run test:reglas` →
+  **45/45** (5 nuevas); `npm run test:unidad` → 13/13; `npx eslint .` 0 errores;
+  `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. **Este cambio necesita desplegar Functions, reglas y
+  hosting** — y en ese orden importa: ver la nota de despliegue más abajo. Revocar una
+  invitación y desactivar a un empleado siguen siendo escrituras del navegador; no mueven
+  plata, así que quedan.
+
+
 ### 2026-08-27 — Claude — El mozo no podía vender una categoría entera (AUD-015)
 
 - **IDs:** `AUD-015` (Resuelto, sin desplegar).

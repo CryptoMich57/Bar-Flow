@@ -11,16 +11,16 @@
 //    quien las hace es admin del SaaS; si no, las reglas las rechazan.
 // ============================================================
 import {
-  getDoc, getDocs, setDoc, updateDoc,
+  getDoc, getDocs, updateDoc,
   onSnapshot, serverTimestamp, writeBatch, query, orderBy,
 } from 'firebase/firestore'
 import { db } from './config'
 import {
   refLocal, colLocales, refEmpleado, colEmpleados,
-  refUsuario, refConfiguracion, refSuperadmin,
+  refUsuario, refSuperadmin,
   colInvitaciones, refInvitacion, refInvitacionGlobal,
 } from './rutas'
-import { DEFAULTS_CONFIG } from './configuracion'
+import { llamarBackend } from './funciones'
 
 export const ROLES = ['encargado', 'cocina', 'mozo']
 
@@ -64,40 +64,25 @@ export const localIdDisponible = async (localId) => {
 }
 
 // ── ALTA DE UN NEGOCIO ───────────────────────────────────────
-// La sesion de Google ya existe cuando se llama a esto. El orden
-// importa: primero el local, despues la ficha de encargado. Las
-// reglas dependen de que exista lo anterior.
+// Escribia cuatro documentos sueltos desde el navegador y un corte en el
+// medio dejaba un bar a medio nacer: sin encargado, o sin configuracion.
+// Peor todavia, quien se registro no podia entrar NI volver a registrarse,
+// porque el localId ya figuraba tomado.
+//
+// Ahora lo arma el backend en un solo batch. Tampoco alcanzaba con hacer
+// el batch desde aca: la regla que deja crear la ficha de encargado
+// pregunta por el dueno del local, y dentro de un batch esa lectura no ve
+// el local que el mismo batch esta creando.
 export const registrarLocal = async ({ localId, nombreLocal, user }) => {
   const problema = validarLocalId(localId)
   if (problema) throw new Error(problema)
   if (!user) throw new Error('Hay que entrar con Google antes de crear el local.')
-  if (!(await localIdDisponible(localId))) {
-    throw new Error('Ya existe un local con ese identificador. Elegi otro.')
-  }
 
-  // El local nace en 'prueba'. Pasarlo a 'activo' o suspenderlo es
-  // decision de la plataforma, y las reglas no dejan que el cliente
-  // se cambie el estado a si mismo.
-  await setDoc(refLocal(localId), {
-    nombre:     nombreLocal.trim(),
-    slogan:     '',
-    logo:       '',
-    owner_uid:  user.uid,
-    estado:     'prueba',
-    plan:       'prueba',
-    creado_en:  serverTimestamp(),
+  await llamarBackend('registrarLocal', {
+    localId,
+    nombre: nombreLocal.trim(),
+    nombreEncargado: user.displayName || '',
   })
-
-  await setDoc(refEmpleado(localId, user.uid), {
-    nombre:     user.displayName || nombreLocal.trim(),
-    email:      normalizarEmail(user.email),
-    rol:        'encargado',
-    activo:     true,
-    creado_en:  serverTimestamp(),
-  })
-
-  await setDoc(refUsuario(user.uid), { local_id: localId, rol: 'encargado' })
-  await setDoc(refConfiguracion(localId), DEFAULTS_CONFIG)
 
   return { localId, uid: user.uid }
 }
@@ -168,6 +153,16 @@ export const buscarInvitacion = async (email) => {
 
 // Canjea la invitacion: crea la ficha de empleado y borra la invitacion.
 // Devuelve el local al que quedo asociada la persona.
+//
+// Las cuatro escrituras van en un solo batch (AUD-005). Antes eran cuatro
+// pasos: un corte despues del segundo dejaba a la persona dentro con la
+// invitacion todavia en pie, y un corte antes la dejaba afuera con la
+// invitacion consumida a medias.
+//
+// A diferencia del alta de local, aca el batch SI alcanza: la regla que
+// autoriza la ficha pregunta por la invitacion, y las reglas se evaluan
+// contra el estado anterior al batch, asi que todavia la ve aunque el
+// mismo batch la este borrando.
 export const aceptarInvitacion = async (user) => {
   const mail = normalizarEmail(user?.email)
   const puntero = await buscarInvitacion(mail)
@@ -177,17 +172,15 @@ export const aceptarInvitacion = async (user) => {
   const detalle = await getDoc(refInvitacion(localId, mail))
   const datos = detalle.exists() ? detalle.data() : { rol: puntero.rol, nombre: '' }
 
-  await setDoc(refEmpleado(localId, user.uid), {
+  const batch = writeBatch(db)
+  batch.set(refEmpleado(localId, user.uid), {
     nombre:    datos.nombre || user.displayName || mail,
     email:     mail,
     rol:       datos.rol,
     activo:    true,
     creado_en: serverTimestamp(),
   })
-  await setDoc(refUsuario(user.uid), { local_id: localId, rol: datos.rol })
-
-  // Ya no hace falta: la persona esta dentro.
-  const batch = writeBatch(db)
+  batch.set(refUsuario(user.uid), { local_id: localId, rol: datos.rol })
   batch.delete(refInvitacion(localId, mail))
   batch.delete(refInvitacionGlobal(mail))
   await batch.commit()

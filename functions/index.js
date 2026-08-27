@@ -203,6 +203,7 @@ const PUESTOS_HABILITADOS = {
   pedirCuenta:           ['encargado', 'mozo'],
   marcarPedidoEntregado: ['encargado', 'mozo'],
   cancelarItem:          ['encargado'],
+  cerrarMesa:            ['encargado'],
 }
 
 const exigirPuesto = (actor, operacion) => {
@@ -628,4 +629,241 @@ export const pedirCuenta = onCall(async (req) => {
   })
 
   return { ok: true }
+})
+
+// ============================================================
+//  CERRAR LA MESA  (AUD-005)
+//
+//  Cobrar y liberar eran dos escrituras sueltas desde el navegador:
+//  primero el cierre al historial, despues la mesa a libre. Un corte
+//  en el medio dejaba la mesa cobrada pero ocupada, y el encargado
+//  —que ve la mesa igual que antes— volvia a apretar. Resultado: DOS
+//  cierres del mismo consumo en la caja. Al cierre del turno los
+//  numeros no dan y no hay forma de saber cual sobra.
+//
+//  Ahora es una transaccion con dos candados distintos, porque son
+//  dos carreras distintas:
+//
+//   1. La CLAVE del cierre es el id del documento de historial. El
+//      mismo intento reintentado cae en el mismo documento.
+//   2. El ESTADO DE LA MESA es el recurso que se consume. Dos
+//      dispositivos cerrando la misma mesa a la vez traen claves
+//      DISTINTAS, asi que la clave no los detiene: los detiene que
+//      la mesa ya este libre. Es el mismo razonamiento que el
+//      carrito en crearPedido.
+//
+//  El borrado de pedidos, mensajes y llamadas quedo FUERA de la
+//  transaccion y a propósito: es higiene, no plata. Si falla, la caja
+//  ya quedo bien y la mesa libre; queda marcada para limpiar y el
+//  siguiente intento la termina. Antes iba todo en un solo batch, con
+//  el limite de 500 escrituras: una sesion larga no se podia cerrar.
+// ============================================================
+
+const LOTE_DE_BORRADO = 300
+
+const vaciarColeccion = async (ref) => {
+  // Paginado: un batch de Firestore admite 500 escrituras, y una mesa
+  // de una noche entera puede tener mas mensajes que eso.
+  for (;;) {
+    const lote = await ref.limit(LOTE_DE_BORRADO).get()
+    if (lote.empty) return
+    const batch = baseDeDatos().batch()
+    lote.docs.forEach(d => batch.delete(d.ref))
+    await batch.commit()
+    if (lote.size < LOTE_DE_BORRADO) return
+  }
+}
+
+const limpiarMesa = async (localId, mesaId) => {
+  const base = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}`)
+  for (const nombre of ['pedidos', 'mensajes', 'llamadas']) {
+    await vaciarColeccion(base.collection(nombre))
+  }
+  await base.update({ limpieza_pendiente: FieldValue.delete() })
+}
+
+const MESA_EN_CERO = {
+  estado: 'libre',
+  clientes: [], dispositivos: [], carrito: [],
+  carrito_bloqueado: false, total_acumulado: 0,
+  propina: 0, metodo_pago: null, abona_con: null,
+  hora_apertura: null, personas: 0,
+}
+
+export const cerrarMesa = onCall(async (req) => {
+  const { localId, mesaId } = exigirLocalYMesa(req.data)
+  await exigirLocalAtendiendo(localId)
+  const actor = await identificar(req, localId, mesaId)
+  // Cerrar la caja de una mesa es del encargado. El mozo toma pedidos.
+  exigirPuesto(actor, 'cerrarMesa')
+
+  const clave = exigirClaveDeIdempotencia(req.data?.clave)
+  // Sin registro = "se fue sin pagar": libera la mesa y no toca la caja.
+  const conRegistro = req.data?.conRegistro !== false
+
+  const refMesa = baseDeDatos().doc(`locales/${localId}/mesas/${mesaId}`)
+  const refCierre = baseDeDatos().doc(`locales/${localId}/historial/${clave}`)
+
+  // Un cierre anterior que no llego a terminar de limpiar. Se retoma en vez
+  // de dejarle los pedidos viejos a la vista al proximo cliente que se
+  // siente en esa mesa.
+  //
+  // La condicion incluye `estado == 'libre'` y no es un detalle: si alguien
+  // ya se sento, la marca vieja seguiria puesta y la limpieza le borraria
+  // los pedidos nuevos.
+  const mesaAhora = await refMesa.get()
+  const hayQueLimpiar = mesaAhora.exists
+    && mesaAhora.data()?.limpieza_pendiente === true
+    && mesaAhora.data()?.estado === 'libre'
+
+  const yaEstaba = await refCierre.get()
+  if (yaEstaba.exists) {
+    if (hayQueLimpiar) await limpiarMesa(localId, mesaId)
+    return { cierreId: refCierre.id, total: yaEstaba.data().total_cobrado, repetido: true }
+  }
+  if (hayQueLimpiar) {
+    await limpiarMesa(localId, mesaId)
+    return { cierreId: null, repetido: true }
+  }
+
+  // El detalle de lo consumido se arma afuera: adentro de la transaccion
+  // no se pueden hacer consultas a una coleccion.
+  const pedidosSnap = await refMesa.collection('pedidos').get()
+  const resumen = pedidosSnap.docs
+    .flatMap(d => d.data()?.items || [])
+    .filter(i => i?.estado !== 'cancelado')
+
+  const resultado = await baseDeDatos().runTransaction(async (tx) => {
+    const [mesa, cierrePrevio] = await Promise.all([tx.get(refMesa), tx.get(refCierre)])
+
+    if (cierrePrevio.exists) {
+      return { cierreId: refCierre.id, total: cierrePrevio.data().total_cobrado, repetido: true }
+    }
+
+    if (!mesa.exists) throw new HttpsError('not-found', 'Esa mesa no existe.')
+    const datos = mesa.data()
+
+    // El candado contra el doble cierre con claves distintas.
+    if (datos.estado === 'libre') {
+      throw new HttpsError('aborted', 'Esa mesa ya fue cerrada desde otro dispositivo.')
+    }
+
+    const total = Number(datos.total_acumulado || 0)
+
+    if (conRegistro) {
+      tx.set(refCierre, {
+        mesa_id: mesaId.replace(/^mesa_/, ''),
+        fecha_hora_apertura: datos.hora_apertura || null,
+        fecha_hora_cierre: FieldValue.serverTimestamp(),
+        clientes: datos.clientes || [],
+        personas: datos.personas || 1,
+        pedidos_resumen: resumen,
+        total_cobrado: total,
+        propina: Number(datos.propina || 0),
+        metodo_pago: datos.metodo_pago || '',
+        abona_con: datos.abona_con ?? null,
+        cerrado_por: { uid: actor.uid, rol: actor.rol },
+      })
+    }
+
+    tx.update(refMesa, { ...MESA_EN_CERO, limpieza_pendiente: true })
+
+    return { cierreId: conRegistro ? refCierre.id : null, total, repetido: false }
+  })
+
+  await limpiarMesa(localId, mesaId)
+  return resultado
+})
+
+// ============================================================
+//  ALTA DE UN LOCAL  (AUD-005)
+//
+//  El alta escribia cuatro documentos sueltos desde el navegador: el
+//  local, la ficha de encargado, el puntero del usuario y la
+//  configuracion. Un corte en el medio dejaba un bar a medio nacer —sin
+//  encargado, o sin configuracion— y quien se registro no podia entrar
+//  ni volver a registrarse, porque el localId ya estaba tomado. Sin
+//  acceso a la consola de Firebase, eso no lo destrababa nadie.
+//
+//  No se puede resolver con un writeBatch del lado del cliente: la regla
+//  que deja crear la ficha de encargado pregunta por el dueno del local,
+//  y dentro de un batch esa lectura todavia no ve el local que el mismo
+//  batch esta creando. Por eso va del lado del servidor, que ademas es
+//  donde corresponde: quien crea el local decide su propio rol.
+// ============================================================
+
+const LOCAL_ID_VALIDO = /^[a-z0-9][a-z0-9-]{2,39}$/
+const LOCALES_RESERVADOS = ['admin', 'login', 'registro', 'mesa', 'api', 'app', 'www', 'hexa']
+
+const CONFIGURACION_INICIAL = {
+  transferencia: { titular: '', banco: '', cbu: '', alias: '' },
+  mesas: { cantidad: MESAS_POR_DEFECTO },
+}
+
+export const registrarLocal = onCall(async (req) => {
+  const { uid, token } = exigirSesion(req)
+
+  // El email verificado es la misma exigencia que para las invitaciones:
+  // la API de Firebase es publica y cualquiera puede darse de alta por
+  // REST con un email que no le pertenece.
+  if (token?.email_verified !== true) {
+    throw new HttpsError('permission-denied', 'Hace falta entrar con Google.')
+  }
+
+  const localId = textoPlano(req.data?.localId).toLowerCase()
+  const nombre = textoPlano(req.data?.nombre)
+
+  if (!LOCAL_ID_VALIDO.test(localId) || LOCALES_RESERVADOS.includes(localId)) {
+    throw new HttpsError('invalid-argument', 'Ese identificador no sirve para un local.')
+  }
+  if (!nombre || nombre.length > 80) {
+    throw new HttpsError('invalid-argument', 'El nombre del local no es valido.')
+  }
+
+  const db = baseDeDatos()
+  const refLocal = db.doc(`locales/${localId}`)
+
+  // Reintentar el alta que ya salio bien devuelve lo mismo en vez de un
+  // error: es lo que ve alguien cuya respuesta se perdio en el camino.
+  const yaExiste = await refLocal.get()
+  if (yaExiste.exists) {
+    if (yaExiste.data()?.owner_uid === uid) return { localId, repetido: true }
+    throw new HttpsError('already-exists', 'Ya existe un local con ese identificador.')
+  }
+
+  const email = String(token.email || '').trim().toLowerCase()
+  const batch = db.batch()
+
+  batch.create(refLocal, {
+    nombre,
+    slogan: '',
+    logo: '',
+    owner_uid: uid,
+    // Nace en prueba: pasarlo a activo o suspenderlo es de la plataforma.
+    estado: 'prueba',
+    plan: 'prueba',
+    creado_en: FieldValue.serverTimestamp(),
+  })
+  batch.create(db.doc(`locales/${localId}/empleados/${uid}`), {
+    nombre: textoPlano(req.data?.nombreEncargado) || nombre,
+    email,
+    rol: 'encargado',
+    activo: true,
+    creado_en: FieldValue.serverTimestamp(),
+  })
+  batch.set(db.doc(`usuarios/${uid}`), { local_id: localId, rol: 'encargado' })
+  batch.set(db.doc(`locales/${localId}/sistema/configuracion`), CONFIGURACION_INICIAL)
+
+  try {
+    await batch.commit()
+  } catch (e) {
+    // `create` falla si el documento aparecio entremedio: dos altas
+    // simultaneas del mismo identificador. Gana una sola.
+    if (e?.code === 6 || /already exists/i.test(e?.message || '')) {
+      throw new HttpsError('already-exists', 'Ya existe un local con ese identificador.')
+    }
+    throw e
+  }
+
+  return { localId, repetido: false }
 })

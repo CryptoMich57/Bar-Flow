@@ -9,11 +9,11 @@
 import {
   getDoc, setDoc, updateDoc, onSnapshot,
   addDoc, serverTimestamp, runTransaction,
-  query, orderBy, limit, writeBatch, getDocs,
+  query, orderBy, limit,
 } from 'firebase/firestore'
 import { db } from './config'
 import {
-  refMesa, colPedidos, colMensajes, colLlamadas, colCarta,
+  refMesa, colPedidos, colMensajes, colCarta,
 } from './rutas'
 import { llamarBackend } from './funciones'
 
@@ -61,12 +61,15 @@ const soltarClave = (casillero) => {
 // Envuelve una creación de pedido: reutiliza la clave pendiente y recién la
 // suelta cuando el backend confirmó. Si falla, la clave queda para el
 // próximo intento.
-const crearPedidoConClave = async (localId, mesaId, operacion, extra = {}) => {
+const conClavePendiente = async (funcion, localId, mesaId, operacion, extra = {}) => {
   const { clave, casillero } = claveGuardada(localId, mesaId, operacion)
-  const resultado = await llamarBackend('crearPedido', { localId, mesaId, clave, ...extra })
+  const resultado = await llamarBackend(funcion, { localId, mesaId, clave, ...extra })
   soltarClave(casillero)
   return resultado
 }
+
+const crearPedidoConClave = (localId, mesaId, operacion, extra = {}) =>
+  conClavePendiente('crearPedido', localId, mesaId, operacion, extra)
 
 // El carrito guarda un borrador, no plata: que producto y cuantos.
 // El precio lo pone el servidor al confirmar, leyendo la carta vigente.
@@ -172,26 +175,26 @@ export const pedirCuenta = async (localId, mesaId, metodoPago, propina, abonaCon
 }
 
 // Liberar mesa completamente - borra subcolecciones
-export const liberarMesa = async (localId, mesaId) => {
-  const batch = writeBatch(db)
-  const cols = [
-    colPedidos(localId, mesaId),
-    colMensajes(localId, mesaId),
-    colLlamadas(localId, mesaId),
-  ]
-  for (const col of cols) {
-    const snap = await getDocs(col)
-    snap.docs.forEach(d => batch.delete(d.ref))
-  }
-  batch.update(refMesa(localId, mesaId), {
-    estado: 'libre',
-    clientes: [], dispositivos: [], carrito: [],
-    carrito_bloqueado: false, total_acumulado: 0,
-    propina: 0, metodo_pago: null, abona_con: null,
-    hora_apertura: null, personas: 0,
-  })
-  await batch.commit()
-}
+/**
+ * Cierra la mesa: registra el consumo en la caja y la deja libre.
+ *
+ * Antes eran dos escrituras sueltas desde el navegador —primero el cierre
+ * al historial, despues la mesa— y un corte en el medio dejaba la mesa
+ * cobrada pero ocupada. El encargado la veia igual que antes, volvia a
+ * apretar, y quedaban DOS cierres del mismo consumo en la caja.
+ *
+ * Ahora va todo en una transaccion del backend, con la misma clave
+ * persistida que usan los pedidos: el reintento cae en el mismo cierre.
+ *
+ * `conRegistro: false` es "se fue sin pagar": libera la mesa sin tocar la
+ * caja.
+ */
+export const cerrarMesa = (localId, mesaId, { conRegistro = true } = {}) =>
+  conClavePendiente(
+    'cerrarMesa', localId, mesaId,
+    conRegistro ? 'cierre' : 'cierre_sin_pago',
+    { conRegistro },
+  )
 
 export const suscribirCarta = (localId, callback) => {
   return onSnapshot(colCarta(localId), (snap) => {

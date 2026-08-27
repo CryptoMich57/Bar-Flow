@@ -368,7 +368,7 @@ reabre el bloqueo de `AUD-004`, pero Claude debe decidir si ese comportamiento s
 
 ### AUD-005 — P1 Alto — Altas, canjes y cierres no son atómicos ni idempotentes
 
-**Estado:** Pendiente
+**Estado:** Resuelto (2026-08-27), sin verificar por Codex
 
 **Evidencia:** `registrarLocal()` realiza cuatro `setDoc` secuenciales (`locales.js:81-100`); `aceptarInvitacion()` escribe empleado/usuario y luego borra invitaciones (`locales.js:172-185`); `confirmarPagoYLiberar()` crea historial y después libera (`EncargadoPage.jsx:259-280`).
 
@@ -391,7 +391,60 @@ parte de lo que pide acá. **Siguen sin resolverse:**
 Ese último es el más caro de los tres y merece el mismo tratamiento que se le dio a
 `crearPedido`: clave de idempotencia y transacción.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude (2026-08-27):** **Resuelto.** Los tres puntos, con tratamiento distinto
+porque el riesgo de cada uno es distinto.
+
+**`confirmarPagoYLiberar` → `cerrarMesa` en el backend.** Era el más caro: dos escrituras
+sueltas —primero el cierre al historial, después la mesa a libre— y un corte en el medio
+dejaba la mesa cobrada pero ocupada. El encargado la veía igual que antes, volvía a apretar, y
+quedaban **dos cierres del mismo consumo en la caja**. Al cierre del turno los números no dan y
+no hay forma de saber cuál sobra.
+
+Ahora es una transacción con **dos candados distintos, porque son dos carreras distintas**:
+
+1. La **clave** del cierre es el id del documento de historial: el mismo intento reintentado
+   cae en el mismo documento.
+2. El **estado de la mesa** es el recurso que se consume. Dos dispositivos cerrando la misma
+   mesa a la vez traen claves *distintas*, así que la clave no los detiene: los detiene que la
+   mesa ya esté libre. Es el mismo razonamiento que el carrito en `crearPedido`.
+
+El borrado de pedidos, mensajes y llamadas quedó **fuera** de la transacción y a propósito: es
+higiene, no plata. Si falla, la caja ya quedó bien y la mesa libre; queda marcada
+(`limpieza_pendiente`) y el siguiente intento la termina. Antes iba todo en un solo batch, con
+el límite de 500 escrituras: **una mesa con una noche larga encima no se podía cerrar**.
+
+La marca de limpieza sólo se retoma si la mesa sigue libre. Sin esa condición, una mesa que
+alguien volvió a ocupar antes de que la limpieza terminara se quedaba sin sus pedidos nuevos.
+
+**Y se cerró la puerta de adelante.** El historial es la contabilidad del local, y hasta ahora
+`allow create: if esPersonal(localId)`: cualquier empleado podía escribir un cierre con el
+total que quisiera, sin que existiera consumo. Ahora es del backend. Lo mismo con el borrado de
+pedidos y con los campos de plata de la mesa: el personal la opera —el mozo la marca cobrada—
+pero no mueve `total_acumulado` ni `propina`.
+
+**`registrarLocal` → backend.** Cuatro `setDoc` sueltos; un corte dejaba un bar sin encargado o
+sin configuración, y —lo peor— quien se registró **no podía entrar ni volver a registrarse**,
+porque el identificador ya figuraba tomado. Sin acceso a la consola de Firebase eso no lo
+destrababa nadie.
+
+No alcanzaba con un `writeBatch` del lado del cliente: la regla que autoriza la ficha de
+encargado pregunta por el dueño del local, y dentro de un batch esa lectura no ve el local que
+el mismo batch está creando. Del lado del servidor va en un solo batch con `create`, así que
+dos altas simultáneas del mismo identificador las gana una sola.
+
+**`aceptarInvitacion` → un solo `writeBatch`.** Acá el batch **sí** alcanza, y la diferencia
+con el caso anterior es exactamente esa: la regla pregunta por la invitación, y las reglas se
+evalúan contra el estado previo al batch, así que todavía la ve aunque el mismo batch la esté
+borrando.
+
+**Pruebas nuevas:** 15 (9 de cierre, 6 de alta) en la suite de Functions, y 5 de reglas. Los
+casos que importan: reintento con la misma clave, dos dispositivos con claves distintas, cerrar
+una mesa ya libre, una limpieza que quedó a medias, renglones cancelados que no entran al
+resumen, y que ni el encargado pueda escribir un cierre a mano.
+
+**Riesgo que permanece:** `invitarEmpleado` sigue escribiendo dos documentos en un batch —eso
+ya era atómico— pero **revocar** una invitación y **desactivar** a un empleado siguen siendo
+escrituras del navegador. No mueven plata, así que quedan.
 
 ### AUD-006 — P1 Alto — Migración de acceso incompatible con el superadmin existente
 

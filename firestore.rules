@@ -189,6 +189,19 @@ service cloud.firestore {
       return resource.data.estado == 'libre' && mesaNaceLimpia();
     }
 
+    // Los campos de plata de una mesa. Los escribe el backend: al
+    // confirmar un pedido, al pedir la cuenta y al cerrar la mesa.
+    //
+    // El personal si opera la mesa desde el navegador —el mozo la marca
+    // cobrada, por ejemplo— pero eso no incluye mover el total. Mientras
+    // el cierre corria en el navegador esta puerta tenia que quedar
+    // abierta; con AUD-005 resuelto, ya no.
+    function personalNoTocaLaCaja() {
+      return !camposTocados().hasAny([
+        'total_acumulado', 'propina', 'carrito_bloqueado', 'limpieza_pendiente'
+      ]);
+    }
+
     function mesaNaceLimpia() {
       return request.resource.data.estado == 'ocupada'
         && request.resource.data.total_acumulado == 0
@@ -263,14 +276,12 @@ service cloud.firestore {
         // El total, la propina, el metodo de pago y el estado de la mesa
         // los escribe el backend al confirmar un pedido o pedir la cuenta.
         //
-        // El personal todavia puede tocar los campos de caja: el cierre
-        // de mesa sigue siendo del lado del cliente (queda abierto en
-        // AUD-005). La diferencia importa: el negocio administra su
-        // propia caja, el comensal no.
+        // El personal opera la mesa pero no mueve la caja: el total, la
+        // propina y las marcas de cierre son del backend (AUD-005).
         allow update: if (esComensal(localId, mesaId)
               && carritoRazonable()
               && (soloCamposDeMesaDelComensal() || comensalAbreLaMesa()))
-          || esPersonal(localId);
+          || (esPersonal(localId) && personalNoTocaLaCaja());
 
         allow delete: if esEncargado(localId);
 
@@ -281,13 +292,14 @@ service cloud.firestore {
         // Admin SDK no pasa por estas reglas, asi que negar aca no le
         // saca nada al negocio y le saca todo a un cliente modificado.
         //
-        // Borrar sigue habilitado para el personal porque de eso depende
-        // liberar la mesa al cerrarla, que todavia corre en el navegador.
+        // Borrar tambien es del backend desde AUD-005: la limpieza al
+        // cerrar la mesa se hace paginada del lado del servidor. Un
+        // comensal que borrara pedidos se borraba su propia cuenta.
         match /pedidos/{pedidoId} {
           allow read:   if esComensal(localId, mesaId) || esPersonal(localId) || esAdminPlataforma();
           allow create: if false;
           allow update: if false;
-          allow delete: if esPersonal(localId);
+          allow delete: if false;
         }
 
         match /mensajes/{mensajeId} {
@@ -307,14 +319,23 @@ service cloud.firestore {
         }
       }
 
-      // -- HISTORIAL Y CAJA -----------------------------------
-      // Facturacion cerrada: ningun comensal la ve ni la toca.
-      // La caja del cliente se mira, no se toca: un cierre creado o borrado
-      // por la plataforma seria plata movida sin que el negocio lo sepa.
+      // -- HISTORIAL: LA CAJA DEL LOCAL ----------------------
+      // Ningun comensal la ve ni la toca. La plataforma tampoco: un
+      // cierre creado o borrado por Hexa Group seria plata movida sin
+      // que el negocio se entere.
+      // Cada documento es el cierre de una mesa: cuanto se cobro y
+      // como. Es la contabilidad del negocio, asi que lo escribe el
+      // backend en la misma transaccion que libera la mesa (AUD-005)
+      // y nadie mas. Antes cualquier empleado podia crear un cierre
+      // con el total que quisiera, sin que existiera un consumo.
+      //
+      // Borrar sigue siendo del encargado: es la funcion de limpiar
+      // el historial viejo desde Ajustes.
       match /historial/{docId} {
-        allow read:           if esPersonal(localId) || esAdminPlataforma();
-        allow create:         if esPersonal(localId);
-        allow update, delete: if esEncargado(localId);
+        allow read:   if esPersonal(localId) || esAdminPlataforma();
+        allow create: if false;
+        allow update: if false;
+        allow delete: if esEncargado(localId);
       }
 
       // -- EMPLEADOS ------------------------------------------
