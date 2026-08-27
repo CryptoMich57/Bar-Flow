@@ -121,8 +121,10 @@ export default function MesaPage() {
   }, [localId, mesaId, paso])
 
   useEffect(() => {
-    const unsub = suscribirCarta(localId, setCarta)
-    return unsub
+    // Sin aviso, una carta que no se puede leer se ve igual que una carta
+    // vacia, y el comensal se queda esperando sin saber que hacer.
+    return suscribirCarta(localId, setCarta,
+      () => setError('No pudimos cargar la carta. Proba de nuevo en un momento.'))
   }, [localId])
 
   useEffect(() => {

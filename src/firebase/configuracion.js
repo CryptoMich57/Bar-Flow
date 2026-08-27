@@ -24,11 +24,16 @@ export const DEFAULTS_CONFIG = {
   // locales/{localId}/empleados/{uid}.
 }
 
-export const suscribirConfiguracion = (localId, callback) => {
-  return onSnapshot(refConfiguracion(localId), (snap) => {
+export const suscribirConfiguracion = (localId, callback, onError) => {
+  return onSnapshot(
+    refConfiguracion(localId),
     // Si no existe el documento, devolver defaults directamente
-    callback(snap.exists() ? { ...DEFAULTS_CONFIG, ...snap.data() } : { ...DEFAULTS_CONFIG })
-  })
+    (snap) => callback(snap.exists() ? { ...DEFAULTS_CONFIG, ...snap.data() } : { ...DEFAULTS_CONFIG }),
+    // Sin esto, una lectura rechazada dejaba la vista con la cantidad de
+    // mesas por defecto —10— como si esa fuera la configuracion real del
+    // local. Se veia igual que un local bien cargado.
+    (error) => onError?.(error),
+  )
 }
 
 export const guardarConfiguracion = async (localId, datos) => {

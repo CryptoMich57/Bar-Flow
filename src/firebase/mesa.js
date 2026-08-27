@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore'
 import { db } from './config'
 import {
-  refMesa, colPedidos, colMensajes, colCarta,
+  refMesa, colMesas, colPedidos, colMensajes, colCarta,
 } from './rutas'
 import { llamarBackend } from './funciones'
 
@@ -80,10 +80,45 @@ const aRenglon = (item, cantidad = 1) => ({
   nota: item.nota || '',
 })
 
-export const suscribirMesa = (localId, mesaId, callback) => {
-  return onSnapshot(refMesa(localId, mesaId), (snap) => {
-    callback(snap.exists() ? { id: snap.id, ...snap.data() } : null)
-  })
+/**
+ * Todas las mesas del salon en UN listener.
+ *
+ * Las tres vistas del personal abrian uno por mesa: `onSnapshot` sobre
+ * `mesas/mesa_1`, `mesas/mesa_2`, y asi. Con 20 mesas eso son 20
+ * conexiones donde alcanza con una, porque todas viven en la misma
+ * coleccion. Los documentos leidos son los mismos —Firestore cobra por
+ * documento— pero las conexiones abiertas no, y ahi hay limites.
+ *
+ * Las mesas que todavia no existen simplemente no vienen en el snapshot:
+ * la vista arma la grilla con la cantidad configurada y las que falten
+ * las dibuja libres, que es lo que ya hacia.
+ *
+ * `onError` no es opcional por costumbre: sin el, una lectura rechazada
+ * mata el listener EN SILENCIO —onSnapshot no reintenta despues de un
+ * error— y la pantalla queda mostrando el estado inicial como si todo
+ * estuviera bien. Es de los sintomas mas caros de diagnosticar.
+ */
+export const suscribirMesas = (localId, callback, onError) => {
+  return onSnapshot(
+    colMesas(localId),
+    (snap) => {
+      const porNumero = {}
+      for (const d of snap.docs) {
+        const numero = d.id.replace(/^mesa_/, '')
+        porNumero[numero] = { id: d.id, ...d.data() }
+      }
+      callback(porNumero)
+    },
+    (error) => onError?.(error),
+  )
+}
+
+export const suscribirMesa = (localId, mesaId, callback, onError) => {
+  return onSnapshot(
+    refMesa(localId, mesaId),
+    (snap) => callback(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+    (error) => onError?.(error),
+  )
 }
 
 export const ocuparMesa = async (localId, mesaId, nombreCliente, dispositivoId, personas = 1) => {
@@ -161,11 +196,13 @@ export const agregarPedidoExtra = async (localId, mesaId, items) => {
   })
 }
 
-export const suscribirPedidos = (localId, mesaId, callback) => {
+export const suscribirPedidos = (localId, mesaId, callback, onError) => {
   const q = query(colPedidos(localId, mesaId), orderBy('created_at', 'asc'))
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-  })
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    (error) => onError?.(error),
+  )
 }
 
 // La propina y el metodo de pago terminan en el cierre de caja, asi que
@@ -196,7 +233,7 @@ export const cerrarMesa = (localId, mesaId, { conRegistro = true } = {}) =>
     { conRegistro },
   )
 
-export const suscribirCarta = (localId, callback) => {
+export const suscribirCarta = (localId, callback, onError) => {
   return onSnapshot(colCarta(localId), (snap) => {
     const items = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
@@ -207,7 +244,7 @@ export const suscribirCarta = (localId, callback) => {
         return 0
       })
     callback(items)
-  })
+  }, (error) => onError?.(error))
 }
 
 /**
@@ -225,17 +262,23 @@ export const enviarMensaje = async (localId, mesaId, texto, autor, rol) => {
 
 // Solo el ultimo mensaje de la mesa: alcanza para saber si hay algo sin leer
 // y cuesta un documento por mesa en vez de la conversacion entera.
-export const suscribirUltimoMensaje = (localId, mesaId, callback) => {
+export const suscribirUltimoMensaje = (localId, mesaId, callback, onError) => {
   const q = query(colMensajes(localId, mesaId), orderBy('created_at', 'desc'), limit(1))
-  return onSnapshot(q, (snap) => {
-    const doc = snap.docs[0]
-    callback(doc ? { id: doc.id, ...doc.data() } : null)
-  })
+  return onSnapshot(
+    q,
+    (snap) => {
+      const doc = snap.docs[0]
+      callback(doc ? { id: doc.id, ...doc.data() } : null)
+    },
+    (error) => onError?.(error),
+  )
 }
 
-export const suscribirMensajes = (localId, mesaId, callback) => {
+export const suscribirMensajes = (localId, mesaId, callback, onError) => {
   const q = query(colMensajes(localId, mesaId), orderBy('created_at', 'asc'))
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-  })
+  return onSnapshot(
+    q,
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    (error) => onError?.(error),
+  )
 }

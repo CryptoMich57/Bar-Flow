@@ -1,21 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { suscribirPedidos, suscribirMensajes, enviarMensaje, cerrarMesa, suscribirUltimoMensaje } from '../firebase/mesa'
+import {
+  suscribirPedidos, suscribirMensajes, enviarMensaje, cerrarMesa,
+  suscribirUltimoMensaje, suscribirMesas,
+} from '../firebase/mesa'
 import { llamarBackend } from '../firebase/funciones'
 import {
   onSnapshot, updateDoc, query, orderBy,
-  getDocs, writeBatch, addDoc,
+  writeBatch, addDoc,
   deleteDoc, getDoc
 } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import {
   refMesa, colPedidos, colLlamadas, refLlamada,
-  colCarta, refItemCarta, colHistorial, refHistorial,
+  colCarta, refItemCarta,
 } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import EquipoDelLocal from '../components/EquipoDelLocal'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
+import { buscarCierres, cierresDeHoy, borrarCierres, TOPE_HISTORIAL } from '../firebase/historial'
 import { leerVistos, guardarVistos, hayPendiente, rolDelMensaje, momentoDelMensaje } from '../utils/noLeidos'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion, guardarConfiguracion, DEFAULTS_CONFIG } from '../firebase/configuracion'
@@ -78,28 +82,26 @@ export default function EncargadoPage() {
 
   // ── Cargar configuración desde Firestore ────────────────────────────────────
   useEffect(() => {
-    const unsub = suscribirConfiguracion(localId, (cfg) => {
-      if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
-      setConfigDB(cfg || DEFAULTS_CONFIG)
-    })
-    return unsub
-  }, [localId])
+    return suscribirConfiguracion(
+      localId,
+      (cfg) => {
+        if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
+        setConfigDB(cfg || DEFAULTS_CONFIG)
+      },
+      // Sin esto la vista se quedaba con 10 mesas —el valor por defecto—
+      // como si esa fuera la configuracion del local.
+      (e) => notif(`No se pudo leer la configuracion: ${e.message}`, 'Red', 8000),
+    )
+  }, [localId, notif])
 
   // ── Suscripciones ───────────────────────────────────────────────────────────
+  // Un solo listener para todo el salon. Antes era uno por mesa: con 20
+  // mesas, 20 conexiones donde alcanza con una. Las que todavia no existen
+  // en la base no vienen en el snapshot y se dibujan libres mas abajo.
   useEffect(() => {
-    if (cantidadMesas === 0) return
-    const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
-    const unsubs = numsMesas.map(num =>
-      onSnapshot(refMesa(localId, num), snap => {
-        if (snap.exists()) setMesas(prev => ({ ...prev, [num]: { id: snap.id, ...snap.data() } }))
-        else {
-          // Mesa no existe en Firestore aún — mostrar como libre
-          setMesas(prev => ({ ...prev, [num]: { id: `mesa_${num}`, estado: 'libre', mesa_numero: num } }))
-        }
-      })
-    )
-    return () => unsubs.forEach(u => u())
-  }, [localId, cantidadMesas])
+    return suscribirMesas(localId, setMesas, (e) =>
+      notif(`No se pueden leer las mesas: ${e.message}`, 'Red', 8000))
+  }, [localId, notif])
 
   useEffect(() => {
     // Otra mesa, otro chat: su primer snapshot vuelve a ser linea de base.
@@ -115,12 +117,15 @@ export default function EncargadoPage() {
     if (cantidadMesas === 0) return
     const nums = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
     const unsubs = nums.map(num =>
-      suscribirUltimoMensaje(localId, num, (msg) =>
-        setUltimosMensajes(prev => ({ ...prev, [num]: msg }))
+      suscribirUltimoMensaje(
+        localId, num,
+        (msg) => setUltimosMensajes(prev => ({ ...prev, [num]: msg })),
+        // Sin aviso, el encargado creeria que nadie le escribio.
+        (e) => notif(`No se pueden leer los mensajes de la mesa ${num}: ${e.message}`, 'Red', 8000),
       )
     )
     return () => unsubs.forEach(u => u())
-  }, [localId, cantidadMesas])
+  }, [localId, cantidadMesas, notif])
 
   // La mesa abierta se da por leida: si el encargado la esta mirando, no
   // tiene sentido marcarle un pendiente encima.
@@ -145,9 +150,12 @@ export default function EncargadoPage() {
 
   useEffect(() => {
     if (!mesaSeleccionada) return
+    const avisarFalla = (que) => (e) =>
+      notif(`No se pueden leer ${que} de la mesa ${mesaSeleccionada}: ${e.message}`, 'Red', 8000)
+
     const u1 = suscribirPedidos(localId, mesaSeleccionada, (nuevos) => {
       setPedidos(nuevos)
-    })
+    }, avisarFalla('los pedidos'))
     const u2 = suscribirMensajes(localId, mesaSeleccionada, (nuevos) => {
       // El chat escucha una sola mesa, asi que la linea de base es su
       // primer snapshot: se registra sin sonar y a partir de ahi si.
@@ -163,13 +171,14 @@ export default function EncargadoPage() {
         notif(`💬 Mensaje — Mesa ${mesaSeleccionada}`, 'gold', 3000)
       }
       setMensajes(nuevos)
-    })
+    }, avisarFalla('los mensajes'))
     const u3 = onSnapshot(
       query(colLlamadas(localId, mesaSeleccionada), orderBy('created_at', 'desc')),
-      snap => setLlamadas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => setLlamadas(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      avisarFalla('las llamadas'),
     )
     return () => { u1(); u2(); u3() }
-  }, [localId, mesaSeleccionada])
+  }, [localId, mesaSeleccionada, notif])
 
   useEffect(() => {
     const unsub = onSnapshot(colCarta(localId), snap => {
@@ -207,10 +216,10 @@ export default function EncargadoPage() {
           }))
           .filter(p => p.items.length > 0)
         setPedidosBarra(prev => ({ ...prev, [num]: barra }))
-      })
+      }, (e) => notif(`No se pueden leer los pedidos de la mesa ${num}: ${e.message}`, 'Red', 8000))
     })
     return () => unsubs.forEach(u => u())
-  }, [localId, cantidadMesas])
+  }, [localId, cantidadMesas, notif])
 
   // ── Suscripcion global de llamadas al mozo ──────────────────────────────────
   // La otra suscripcion a llamadas solo mira la mesa seleccionada, asi que sin
@@ -239,7 +248,7 @@ export default function EncargadoPage() {
           sonidoLlamadaMozo()
           notif(`✋ Mesa ${num}: ${l.nota || 'te llama'}`, 'Yellow', 5000)
         })
-      })
+      }, (e) => notif(`No se pueden ver las llamadas de la mesa ${num}: ${e.message}`, 'Red', 8000))
     )
     return () => unsubs.forEach(u => u())
   }, [localId, cantidadMesas, notif])
@@ -261,32 +270,38 @@ export default function EncargadoPage() {
   }, [mesas, notif])
 
   // ── Historial ───────────────────────────────────────────────────────────────
+  // El filtro por fecha viaja a la consulta. Antes se descargaba la
+  // coleccion entera y se filtraba aca: para ver la caja de un dia habia
+  // que bajarse todos los cierres de la historia del local.
   const cargarHistorial = async (desde = null, hasta = null) => {
-    let q = query(colHistorial(localId), orderBy('fecha_hora_cierre', 'desc'))
-    const snap = await getDocs(q)
-    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    if (desde) docs = docs.filter(d => d.fecha_hora_cierre?.toDate?.() >= new Date(desde))
-    if (hasta) {
-      const hastaDate = new Date(hasta); hastaDate.setHours(23,59,59)
-      docs = docs.filter(d => d.fecha_hora_cierre?.toDate?.() <= hastaDate)
+    try {
+      setHistorial(await buscarCierres(localId, { desde, hasta }))
+    } catch (e) {
+      notif(`No se pudo cargar el historial: ${e.message}`, 'Red', 6000)
     }
-    setHistorial(docs)
   }
 
   const borrarHistorialFiltrado = async () => {
     if (!window.confirm('¿Borrar el historial filtrado?')) return
-    const batch = writeBatch(db)
-    historial.forEach(h => batch.delete(refHistorial(localId, h.id)))
-    await batch.commit()
-    setHistorial([])
+    try {
+      // De a lotes: un batch admite 500 escrituras y borrar un año entero
+      // fallaba sin decir por que.
+      await borrarCierres(localId, historial.map(h => h.id))
+      setHistorial([])
+    } catch (e) {
+      notif(`No se pudo borrar el historial: ${e.message}`, 'Red', 6000)
+    }
   }
 
   // ── Estadísticas del día ─────────────────────────────────────────────────────
   const calcularEstadisticas = async () => {
-    const hoy = new Date(); hoy.setHours(0,0,0,0)
-    const snap = await getDocs(colHistorial(localId))
-    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .filter(d => d.fecha_hora_cierre?.toDate?.() >= hoy)
+    let docs
+    try {
+      docs = await cierresDeHoy(localId)
+    } catch (e) {
+      notif(`No se pudieron calcular las estadisticas: ${e.message}`, 'Red', 6000)
+      return
+    }
 
     const stats = {
       efectivo:      docs.filter(d => d.metodo_pago === 'efectivo').reduce((a, d) => a + (d.total_cobrado||0), 0),

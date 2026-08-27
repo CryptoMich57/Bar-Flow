@@ -768,7 +768,7 @@ detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelt
 
 ### AUD-011 — P2 Medio — Escalabilidad y costos crecen por mesa y por historial completo
 
-**Estado:** Pendiente
+**Estado:** Mayormente resuelto (2026-08-27) — quedan las subcolecciones por mesa
 
 **Evidencia:** Mozo abre tres listeners por mesa (`MozoPage.jsx:51-75`); Cocina y Encargado también suscriben por mesa. Estadísticas e historial descargan colecciones completas (`EncargadoPage.jsx:176-211`, `CocinaPage.jsx:53-84`). `liberarMesa()` concentra todas las eliminaciones en un batch (`mesa.js:149-168`), limitado a 500 escrituras.
 
@@ -776,7 +776,51 @@ detectarse"— ya existe y corre. El resto queda con dueño asignado, no disuelt
 
 **Solución requerida:** colecciones/consultas agregadas por estado, índices y paginación; métricas diarias precalculadas; limpieza paginada desde backend; callbacks de error visibles en todos los listeners.
 
-**Respuesta de Claude:** _Pendiente._
+**Respuesta de Claude (2026-08-27):** **Mayormente resuelto.** Tres cosas, y la primera resultó
+peor de lo que decía el hallazgo.
+
+**1. El historial se descargaba entero, tres veces.** `cargarHistorial`, `calcularEstadisticas`
+y la vista de cocina hacían `getDocs` de la colección completa y **filtraban por fecha en
+JavaScript**. Funciona con un bar de prueba. Un local que cierra 40 mesas por día llega a
+~15.000 documentos en un año, y los bajaba **todos** cada vez que alguien abría "Estadísticas"
+para ver la caja de hoy. Firestore cobra por documento leído, así que eso es plata en la
+factura y segundos en la pantalla.
+
+Ahora el filtro viaja a la consulta (`where` sobre `fecha_hora_cierre`), y sin filtro hay un
+tope de 300. El rango va sobre el mismo campo del `orderBy`, así que **no hace falta ningún
+índice compuesto** —importa, porque un índice faltante rompe la consulta en producción y no en
+el emulador—.
+
+De paso: `borrarHistorialFiltrado` metía todos los borrados en un `writeBatch`, que admite 500.
+Borrar un año de historial fallaba, y el error no decía por qué: quedaba como "el botón no
+anda". Ahora va de a lotes de 400.
+
+**2. Un listener por mesa donde alcanzaba con uno.** Las tres vistas del personal abrían
+`onSnapshot` sobre `mesas/mesa_1`, `mesas/mesa_2`, y así. Todas las mesas viven en la **misma
+colección**: ahora es un solo listener. Con 20 mesas, el encargado pasó de 4N a 3N+1
+conexiones. Los documentos leídos son los mismos —Firestore cobra por documento— pero las
+conexiones abiertas no, y ahí hay límites.
+
+**3. Los errores de listener eran invisibles, y eso costó caro.** `onSnapshot` **no reintenta
+después de un error**: una lectura rechazada mata la suscripción en silencio y la pantalla se
+queda con el estado inicial, como si todo estuviera bien. Peor: `suscribirConfiguracion` caía
+en los valores por defecto, así que un local con 4 mesas se dibujaba con 10 y parecía
+configuración real.
+
+Ahora todos tienen `onError` y todos avisan en pantalla. Y `suscribirLocal` dejó de tragarse el
+error para devolver `null`: **"este local no existe" y "no lo pude leer" son cosas distintas**
+—a la primera no hay nada que hacerle, la segunda se reintenta— y las dos terminaban en la
+misma pantalla mandando a revisar una dirección que estaba bien. Eso cierra también el residuo
+que quedaba anotado en `AUD-014`.
+
+**Lo que queda de este hallazgo:** los pedidos, mensajes y llamadas siguen siendo un listener
+por mesa, porque son **subcolecciones** y no se pueden juntar en una sola consulta sin agregarle
+un campo `local_id` a cada documento para poder usar `collectionGroup`. Es un cambio de modelo
+de datos, con migración de lo que ya está escrito; no entra acá. La alternativa más barata sería
+resumir en el documento de la mesa lo que hoy exige un listener propio —si hay una mano
+levantada, cuándo fue el último mensaje— y quedarse con el listener de mesas que ya existe.
+Tampoco están las métricas diarias precalculadas: hoy las estadísticas se recalculan leyendo
+los cierres del día, que ya es una consulta acotada pero no es un contador.
 
 ### AUD-012 — P2 Medio — Dependencias con vulnerabilidades conocidas
 

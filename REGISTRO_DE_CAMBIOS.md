@@ -17,6 +17,42 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Costos, listeners y errores que no se veían (AUD-011)
+
+- **IDs:** `AUD-011` (Mayormente resuelto, sin desplegar). Cierra además el residuo de
+  `AUD-014` sobre los errores que sólo iban a consola.
+- **Archivos:** `src/firebase/historial.js` (nuevo), `src/firebase/mesa.js`,
+  `src/firebase/locales.js`, `src/firebase/configuracion.js`, `src/utils/LocalContext.jsx`,
+  `src/components/PuertaDeAcceso.jsx`, `src/App.jsx`, y las tres vistas del personal.
+- **Cambio:** tres cosas, y la primera resultó peor de lo que decía el hallazgo.
+
+  **El historial se descargaba entero, en tres lugares.** Estadísticas, historial del encargado
+  y cocina hacían `getDocs` de la colección completa y **filtraban por fecha en JavaScript**. Un
+  local que cierra 40 mesas por día llega a ~15.000 documentos en un año, y los bajaba todos
+  cada vez que alguien abría "Estadísticas" para ver la caja de hoy. Ahora el filtro va en la
+  consulta, sobre el mismo campo del `orderBy` para no necesitar índice compuesto, y sin filtro
+  hay un tope de 300. De paso, borrar el historial iba en un solo batch de 500: borrar un año
+  fallaba sin decir por qué.
+
+  **Un listener por mesa donde alcanza con uno.** Las tres vistas abrían `onSnapshot` sobre cada
+  documento de mesa; todas viven en la misma colección. Con 20 mesas el encargado pasó de 4N a
+  3N+1 conexiones.
+
+  **Los errores de listener eran invisibles.** `onSnapshot` no reintenta después de un error: la
+  suscripción muere en silencio y la pantalla se queda con el estado inicial como si todo
+  anduviera. `suscribirConfiguracion` caía en los valores por defecto, así que un local de 4
+  mesas se dibujaba con 10 y parecía configuración real. Ahora todos avisan en pantalla. Y
+  `suscribirLocal` dejó de devolver `null` a secas: **"no existe" y "no lo pude leer" son cosas
+  distintas** y las dos terminaban mandando a revisar una dirección que estaba bien.
+- **Validación:** `npm run test:e2e` → 12/12; `npm run test:reglas` → 45/45;
+  `npm run test:funciones` → 40/40; `npm run test:unidad` → 13/13; `npx eslint .` 0 errores y
+  **de 7 avisos a 4**; `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. Pedidos, mensajes y llamadas siguen con un listener
+  por mesa: son subcolecciones y juntarlas exige agregar un campo `local_id` a cada documento
+  para usar `collectionGroup`, con migración de lo ya escrito. Tampoco hay métricas diarias
+  precalculadas. **Este cambio no toca reglas ni Functions: alcanza con desplegar hosting.**
+
+
 ### 2026-08-27 — Claude — Pruebas que abren la app de verdad (AUD-014)
 
 - **IDs:** `AUD-014` (Mayormente resuelto, sin desplegar).

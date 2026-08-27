@@ -231,12 +231,17 @@ export const quitarEmpleado = async (localId, uid) => {
 // ── DATOS DEL LOCAL ──────────────────────────────────────────
 // El segundo callback importa: si las reglas rechazan la lectura (o no hay
 // red), sin el la suscripcion se queda muda y la pantalla espera para
-// siempre. Preferimos avisar que el local no se pudo cargar.
-export const suscribirLocal = (localId, callback) => {
+// siempre.
+//
+// Pero devolver `null` y nada mas tampoco alcanzaba: "este local no
+// existe" y "no lo pude leer" terminaban en la misma pantalla, y son
+// cosas muy distintas. A la primera no hay nada que hacerle —el QR esta
+// mal—; la segunda se arregla reintentando. Ahora el error sube.
+export const suscribirLocal = (localId, callback, onError) => {
   return onSnapshot(
     refLocal(localId),
     (snap) => callback(snap.exists() ? { id: snap.id, ...snap.data() } : null),
-    () => callback(null),
+    (error) => { onError?.(error); callback(null) },
   )
 }
 

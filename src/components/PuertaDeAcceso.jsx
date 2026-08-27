@@ -13,7 +13,7 @@ import styles from './PuertaDeAcceso.module.css'
 // El encargado entra a todas las vistas de su local; el admin de la
 // plataforma entra a cualquier local para poder dar soporte.
 export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, children }) {
-  const { localId, local, nombre: nombreBar, logo, cargando: cargandoLocal } = useLocal()
+  const { localId, local, nombre: nombreBar, logo, cargando: cargandoLocal, error: errorLocal } = useLocal()
   const { user, rol, ficha, esAdmin, errorCanje, tieneAcceso, cargando } = useAcceso(localId, rolesPermitidos)
   const [error, setError]       = useState(null)
   const [enviando, setEnviando] = useState(false)
@@ -62,6 +62,24 @@ export default function PuertaDeAcceso({ rolesPermitidos, titulo, emoji, childre
         </p>
       </div>
       <footer className={styles.footer}>{getCopyright()}</footer>
+    </div>
+  )
+
+  // No es lo mismo "no existe" que "no lo pude leer": al primero no hay
+  // nada que hacerle, al segundo se lo reintenta. Antes los dos caian en
+  // "Local no encontrado" y mandaban a revisar una direccion que estaba
+  // bien.
+  if (errorLocal) return (
+    <div className={styles.pantalla}>
+      <div className={styles.caja}>
+        <h2 className={styles.titulo}>No se pudo cargar el local</h2>
+        <p className={styles.aviso}>
+          La direccion parece correcta, pero no pudimos leer los datos de
+          "{localId}". Puede ser la conexion.
+        </p>
+        <button className="btn btn-gold" style={{marginTop:12}}
+          onClick={() => window.location.reload()}>Reintentar</button>
+      </div>
     </div>
   )
 

@@ -3,7 +3,7 @@ import { onSnapshot, updateDoc, query, orderBy } from 'firebase/firestore'
 import { llamarBackend } from '../firebase/funciones'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
-import { suscribirCarta, agregarPedidoExtra } from '../firebase/mesa'
+import { suscribirCarta, agregarPedidoExtra, suscribirMesas } from '../firebase/mesa'
 import { refMesa, colPedidos, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
@@ -41,11 +41,12 @@ export default function MozoPage() {
   const [cantMesas, setCantMesas] = useState(MESAS_POR_DEFECTO)
 
   useEffect(() => {
-    const unsub = suscribirConfiguracion(localId, (cfg) => {
-      if (cfg?.mesas?.cantidad) setCantMesas(cfg.mesas.cantidad)
-    })
-    return unsub
-  }, [localId])
+    return suscribirConfiguracion(
+      localId,
+      (cfg) => { if (cfg?.mesas?.cantidad) setCantMesas(cfg.mesas.cantidad) },
+      (e) => notif(`No se pudo leer la configuracion: ${e.message}`, 'Red', 8000),
+    )
+  }, [localId, notif])
   // Ver src/utils/avisos.js: la linea de base se lleva por mesa, no por
   // "el registro esta vacio". Con lo anterior, una mesa que arrancaba sin
   // llamadas pendientes no avisaba nunca la primera.
@@ -56,28 +57,32 @@ export default function MozoPage() {
   // ── Suscripciones ────────────────────────────────────────────────────────────
   useEffect(() => {
     const NUMS_MESAS = Array.from({ length: cantMesas }, (_, i) => String(i + 1))
+    // Las mesas van en un solo listener: todas viven en la misma coleccion.
+    const uMesas = suscribirMesas(localId, setMesas, (e) =>
+      notif(`No se pueden leer las mesas: ${e.message}`, 'Red', 8000))
     const unsubs = NUMS_MESAS.map(num => {
-      const u1 = onSnapshot(refMesa(localId, num), snap => {
-        if (snap.exists()) setMesas(prev => ({ ...prev, [num]: { id: snap.id, ...snap.data() } }))
-      })
       const u2 = onSnapshot(
         query(colPedidos(localId, num), orderBy('created_at', 'asc')),
         snap => {
           const pedidos = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.estado !== 'entregado')
           setPedidosPorMesa(prev => ({ ...prev, [num]: pedidos }))
-        }
+        },
+        (e) => notif(`No se ven los pedidos de la mesa ${num}: ${e.message}`, 'Red', 8000),
       )
       const u3 = onSnapshot(
         query(colLlamadas(localId, num), orderBy('created_at', 'desc')),
         snap => {
           const llamadas = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.estado === 'pendiente')
           setLlamadasPorMesa(prev => ({ ...prev, [num]: llamadas }))
-        }
+        },
+        // El mozo depende de esto para saber que lo estan llamando: que
+        // falle sin avisar es peor que no tenerlo.
+        (e) => notif(`No se ven las llamadas de la mesa ${num}: ${e.message}`, 'Red', 8000),
       )
-      return () => { u1(); u2(); u3() }
+      return () => { u2(); u3() }
     })
-    return () => unsubs.forEach(u => u())
-  }, [localId, cantMesas])
+    return () => { uMesas(); unsubs.forEach(u => u()) }
+  }, [localId, cantMesas, notif])
 
   useEffect(() => {
     const unsub = suscribirCarta(localId, setCarta)

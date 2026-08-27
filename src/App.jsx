@@ -35,7 +35,7 @@ const AdminPage     = lazy(() => import('./pages/AdminPage'))
 // rechazan cada lectura.
 function ZonaCliente({ children }) {
   const { user, cargando, error } = useSesion()
-  const { localId, local, cargando: cargandoLocal } = useLocal()
+  const { localId, local, cargando: cargandoLocal, error: errorLocal } = useLocal()
   const { mesaId } = useParams()
   const { rol, cargando: cargandoRol } = useAcceso(localId, ['cocina', 'mozo'])
   const [capacidad, setCapacidad] = useState({ lista: false, error: null })
@@ -68,6 +68,19 @@ function ZonaCliente({ children }) {
 
   if (cargando || cargandoLocal || !user) return (
     <div className="pantallaEstado"><p>Conectando...</p></div>
+  )
+
+  // "No existe" y "no lo pude leer" no son lo mismo. Al comensal que
+  // escaneo un QR bien pero se quedo sin senal, mandarle a pedir ayuda a un
+  // mozo por un codigo que esta bien es hacerle perder el tiempo a los dos.
+  if (errorLocal) return (
+    <div className="pantallaEstado">
+      <div style={{textAlign:'center', maxWidth:340}}>
+        <p>No pudimos cargar el bar. Puede ser la conexion.</p>
+        <button className="btn btn-gold" style={{marginTop:16}}
+          onClick={() => window.location.reload()}>Reintentar</button>
+      </div>
+    </div>
   )
 
   if (!local) return (

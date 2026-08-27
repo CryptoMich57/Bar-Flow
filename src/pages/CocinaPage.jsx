@@ -3,7 +3,8 @@ import { onSnapshot, query, orderBy, getDocs } from 'firebase/firestore'
 import { llamarBackend } from '../firebase/funciones'
 import { getCopyright } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
-import { colPedidos, colHistorial } from '../firebase/rutas'
+import { colPedidos } from '../firebase/rutas'
+import { cierresDeHoy } from '../firebase/historial'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
 import { crearRegistroDeAvisos, novedades } from '../utils/avisos'
@@ -24,12 +25,6 @@ export default function CocinaPage() {
   const { soporte } = useAccesoActual()
   const [cantidadMesas, setCantidadMesas] = useState(10)
 
-  useEffect(() => {
-    const unsub = suscribirConfiguracion(localId, (cfg) => {
-      if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad)
-    })
-    return unsub
-  }, [localId])
   const [pedidosPorMesa, setPedidosPorMesa] = useState({})
   const [historialDia, setHistorialDia]     = useState([])
   const [tab, setTab]                 = useState('activos')
@@ -37,6 +32,14 @@ export default function CocinaPage() {
   const avisosPedidos = useRef(crearRegistroDeAvisos())
   const pedidosNuevos = useRef({})
   const { agregar: notif, NotifBanner } = useNotificaciones()
+
+  useEffect(() => {
+    return suscribirConfiguracion(
+      localId,
+      (cfg) => { if (cfg?.mesas?.cantidad) setCantidadMesas(cfg.mesas.cantidad) },
+      (e) => notif(`No se pudo leer la configuracion: ${e.message}`, 'Red', 8000),
+    )
+  }, [localId, notif])
 
   // ── Suscripciones ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -53,7 +56,7 @@ export default function CocinaPage() {
           }))
           .filter(p => p.items.length > 0)
         setPedidosPorMesa(prev => ({ ...prev, [num]: pedidos }))
-      })
+      }, (e) => notif(`No se ven los pedidos de la mesa ${num}: ${e.message}`, 'Red', 8000))
     })
     return () => unsubs.forEach(u => u())
   }, [localId, cantidadMesas])
@@ -62,7 +65,6 @@ export default function CocinaPage() {
   useEffect(() => {
     if (tab !== 'historial') return
     const cargarHistorial = async () => {
-      const hoy = new Date(); hoy.setHours(0,0,0,0)
       const todos = []
       const numsMesas = Array.from({ length: cantidadMesas }, (_, i) => String(i + 1))
       for (const num of numsMesas) {
@@ -73,11 +75,9 @@ export default function CocinaPage() {
           if (itemsCocina.length > 0) todos.push({ ...data, items: itemsCocina })
         })
       }
-      // También del historial cerrado hoy
-      const histSnap = await getDocs(colHistorial(localId))
-      const cerradosHoy = histSnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(d => d.fecha_hora_cierre?.toDate?.() >= hoy)
+      // Tambien del historial cerrado hoy. El filtro va en la consulta:
+      // antes se bajaba la caja entera del local para mirar un dia.
+      const cerradosHoy = (await cierresDeHoy(localId))
         .map(d => ({
           id: d.id,
           mesaId: d.mesa_id,
