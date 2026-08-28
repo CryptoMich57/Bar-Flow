@@ -70,6 +70,29 @@ test('el mozo puede tomar un pedido de la promocion del dia', async ({ page }) =
   expect(pedido.total).toBe(5000)
 })
 
+test('el mozo toma el pedido de una mesa que nadie abrio', async ({ page }) => {
+  // El caso real del bar: el mozo se acerca a la mesa 1, que esta libre
+  // porque nadie escaneo el QR, y carga el pedido. Antes daba 400 Bad
+  // Request —"esa mesa esta libre"— y no habia forma de vender sin que el
+  // cliente usara el telefono.
+  await entrarComo(page, {
+    email: 'mario@bar.com', nombre: 'Mario', rol: 'mozo', ruta: 'mozo',
+  })
+
+  await page.getByRole('button', { name: /Tomar pedido/i }).first().click()
+  await page.getByRole('button', { name: 'Mesa 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Agregar Menu del dia' }).click()
+  await page.getByRole('button', { name: /Enviar pedido/i }).click()
+
+  await expect.poll(async () =>
+    (await listar(`locales/${LOCAL}/mesas/mesa_1/pedidos`)).length,
+    { timeout: 20_000 }).toBe(1)
+
+  const mesa = await leer(`locales/${LOCAL}/mesas/mesa_1`)
+  expect(mesa.estado).toBe('esperando_preparacion')
+  expect(mesa.total_acumulado).toBe(5000)
+})
+
 test('el mozo ve su propio nombre y no elige quien es', async ({ page }) => {
   // Antes habia un selector de mozos: cualquiera podia operar y quedar
   // registrado como otro (AUD-008). Ahora el nombre sale de su ficha.

@@ -767,3 +767,85 @@ describe('AUD-005 — el alta de un local nace entera o no nace', () => {
     )
   }, PACIENCIA)
 })
+
+
+// ════════════════════════════════════════════════════════════
+describe('AUD-019 — el mozo toma el pedido antes de que nadie escanee', () => {
+  // El error que llego del bar: 400 Bad Request al cargar un pedido desde
+  // la vista del mozo. Adentro era "failed-precondition: esa mesa esta
+  // libre". En un bar el mozo se acerca a la mesa y toma el pedido; nadie
+  // escaneo nada todavia. Sentar la mesa es parte de tomar el pedido.
+
+  const mario = () => empleado('mario', 'mario@a.com')
+
+  it('una mesa LIBRE se abre al cargarle el pedido', async () => {
+    await escribir(`locales/${L}/mesas/mesa_2`, {
+      estado: 'libre', personas: 0, carrito: [], carrito_bloqueado: false,
+      total_acumulado: 0, propina: 0, metodo_pago: null,
+    })
+
+    const r = await llamar('crearPedido', {
+      localId: L, mesaId: '2', clave: 'mozo-abre-libre',
+      items: [{ id: 'cafe', cantidad: 2 }],
+    }, mario())
+    expect(r.total).toBe(1800)
+
+    const mesa = await leer(`locales/${L}/mesas/mesa_2`)
+    expect(mesa.estado).toBe('esperando_preparacion')
+    expect(mesa.total_acumulado).toBe(1800)
+    // No se inventan datos que el mozo no tiene.
+    expect(mesa.personas).toBe(0)
+    expect(mesa.clientes).toEqual([])
+    expect(mesa.abierta_por.uid).toBe('mario')
+  }, PACIENCIA)
+
+  it('una mesa que ni siquiera existe tambien', async () => {
+    const r = await llamar('crearPedido', {
+      localId: L, mesaId: '5', clave: 'mozo-abre-inexistente',
+      items: [{ id: 'tostado', cantidad: 1 }],
+    }, mario())
+    expect(r.total).toBe(1800)
+    expect((await leer(`locales/${L}/mesas/mesa_5`)).estado).toBe('esperando_preparacion')
+  }, PACIENCIA)
+
+  it('el comensal NO abre mesas por esta via', async () => {
+    // El comensal llega con su mesa ya abierta por abrirMesa. Dejarlo
+    // crearla aca saltearia mesaNaceLimpia().
+    await escribir(`locales/${L}/mesas/mesa_3`, {
+      estado: 'libre', personas: 0, carrito: [], carrito_bloqueado: false,
+      total_acumulado: 0, propina: 0, metodo_pago: null,
+    })
+    await debeFallar(
+      llamar('crearPedido', {
+        localId: L, mesaId: '3', clave: 'comensal-mesa-libre',
+        items: [{ id: 'cafe', cantidad: 1 }],
+      }, comensalEn(L, 3)),
+      'FAILED_PRECONDITION',
+    )
+  }, PACIENCIA)
+
+  it('un numero de mesa que el local no tiene se rechaza', async () => {
+    // Sin esto, un dedo de mas dejaba una mesa_9999 en la base.
+    await debeFallar(
+      llamar('crearPedido', {
+        localId: L, mesaId: '9999', clave: 'mozo-mesa-inventada',
+        items: [{ id: 'cafe', cantidad: 1 }],
+      }, mario()),
+      'OUT_OF_RANGE',
+    )
+    expect(await leer(`locales/${L}/mesas/mesa_9999`)).toBeNull()
+  }, PACIENCIA)
+
+  it('abrir la mesa no rompe la idempotencia', async () => {
+    // Si el celular pierde señal justo despues de abrirla, el reintento no
+    // puede cobrar el pedido dos veces.
+    const uno = { localId: L, mesaId: '4', clave: 'mozo-abre-retry',
+      items: [{ id: 'cafe', cantidad: 1 }] }
+    await llamar('crearPedido', uno, mario())
+    const dos = await llamar('crearPedido', uno, mario())
+
+    expect(dos.repetido).toBe(true)
+    expect((await leer(`locales/${L}/mesas/mesa_4`)).total_acumulado).toBe(900)
+    expect((await listar(`locales/${L}/mesas/mesa_4/pedidos`)).length).toBe(1)
+  }, PACIENCIA)
+})

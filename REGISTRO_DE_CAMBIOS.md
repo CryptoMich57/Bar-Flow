@@ -17,6 +17,39 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — El mozo no podía vender sin que el cliente escaneara (AUD-019)
+
+- **IDs:** `AUD-019` (Resuelto, sin desplegar).
+- **Archivos:** `functions/index.js`, `tests/funciones.test.js`, `tests/e2e/personal.spec.js`.
+- **Cambio:** desde la vista del mozo, cargar un pedido devolvía **400 Bad Request** en
+  `crearPedido`. Reproducido contra el emulador, adentro decía
+  `FAILED_PRECONDITION: Esa mesa esta libre.`
+
+  No era una falla de código: era un **supuesto equivocado sobre cómo se atiende un bar**. La
+  app asumía que la mesa la abre el comensal al escanear el QR, así que `crearPedido` exigía una
+  mesa ya ocupada. Pero el mozo se acerca a la mesa y toma el pedido **antes** de que nadie haya
+  tocado un teléfono — esa es la secuencia normal, y sin QR de por medio no había forma de
+  vender.
+
+  Ahora sentar la mesa es parte de tomar el pedido, en la misma transacción. Solo lo hace el
+  **personal** y solo cuando manda renglones explícitos: un comensal llega siempre con su mesa
+  abierta por `abrirMesa`, y dejarlo crearla por acá saltearía `mesaNaceLimpia()`.
+
+  La mesa que abre el mozo nace en cero salvo por ese pedido. **No se inventan datos que el mozo
+  no tiene**: cuántos son y cómo se llaman queda vacío, y lo completa el comensal si después
+  escanea. Queda registrado quién la abrió.
+
+  Se agregó además la verificación del número contra la configuración del local —la misma que ya
+  hacía `abrirMesa`—: sin eso, un dedo de más dejaba una `mesa_9999` en la base.
+- **Validación:** `npm run test:funciones` → **45/45** (5 nuevas: mesa libre, mesa inexistente,
+  que el comensal NO abra por esta vía, número fuera de rango, y que abrir la mesa no rompa la
+  idempotencia); `npm run test:e2e` → **14/14**, con un recorrido que reproduce el caso del bar
+  de punta a punta; reglas 45/45; unidad 13/13; lint 0 errores; build correcto.
+- **Pendiente / riesgos:** **hay que desplegar Functions**, no alcanza con hosting. El mozo abre
+  la mesa con `personas: 0`; si el encargado necesita ese dato para el salón, hoy queda en
+  blanco hasta que el comensal escanee.
+
+
 ### 2026-08-27 — Claude — Los dispositivos se quedaban con la app vieja (AUD-018)
 
 - **IDs:** `AUD-018` (Resuelto, sin desplegar). Es el riesgo que `AUD-013` había anotado como

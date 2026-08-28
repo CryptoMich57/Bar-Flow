@@ -147,6 +147,13 @@ const exigirLocalYMesa = (data) => {
   return { localId, mesaId: `mesa_${numero}` }
 }
 
+// Cuantas mesas declaro el local. Sirve para no dejar que un numero mal
+// tipeado cree una mesa que no existe en el salon.
+const cantidadDeMesas = async (localId) => {
+  const config = await baseDeDatos().doc(`locales/${localId}/sistema/configuracion`).get()
+  return config.data()?.mesas?.cantidad || MESAS_POR_DEFECTO
+}
+
 const exigirLocalAtendiendo = async (localId) => {
   const local = await baseDeDatos().doc(`locales/${localId}`).get()
   if (!local.exists) throw new HttpsError('not-found', 'Ese local no existe.')
@@ -373,6 +380,17 @@ export const crearPedido = onCall(async (req) => {
   //    consumir, asi que no corresponde bloquear nada.
   const pidioRenglones = Array.isArray(req.data?.items) && req.data.items.length > 0
 
+  // Si el personal puede terminar creando la mesa, el numero tiene que ser
+  // uno de los que el local declaro: un dedo de mas no puede dejar una
+  // mesa_9999 en la base. Es la misma verificacion que hace abrirMesa.
+  if (actor.tipo === 'personal' && pidioRenglones) {
+    const cantidad = await cantidadDeMesas(localId)
+    const numero = Number(mesaId.replace(/^mesa_/, ''))
+    if (numero < 1 || numero > cantidad) {
+      throw new HttpsError('out-of-range', `Ese local tiene ${cantidad} mesas.`)
+    }
+  }
+
   let solicitado = req.data?.items
   let huellaCotizada = null
   if (!pidioRenglones) {
@@ -397,9 +415,23 @@ export const crearPedido = onCall(async (req) => {
       return { pedidoId: refPedido.id, total: pedidoPrevio.data().total, repetido: true }
     }
 
-    if (!mesa.exists) throw new HttpsError('not-found', 'Esa mesa no esta abierta.')
-    const datos = mesa.data()
-    if (datos.estado === 'libre') {
+    // El mozo toma el pedido ANTES de que nadie escanee nada: en un bar esa
+    // es la secuencia normal, y hasta ahora fallaba con "esa mesa esta
+    // libre". Sentar la mesa es parte de tomar el pedido, asi que lo hace
+    // el mismo movimiento y en la misma transaccion.
+    //
+    // Solo vale para el personal, y solo cuando manda renglones explicitos:
+    // un comensal llega con su mesa ya abierta por abrirMesa, y un carrito
+    // que confirmar implica que alguien ya se sento.
+    const puedeSentarLaMesa = actor.tipo === 'personal' && pidioRenglones
+
+    if (!mesa.exists && !puedeSentarLaMesa) {
+      throw new HttpsError('not-found', 'Esa mesa no esta abierta.')
+    }
+    const datos = mesa.exists ? mesa.data() : {}
+    const mesaEstabaLibre = !mesa.exists || datos.estado === 'libre'
+
+    if (mesaEstabaLibre && !puedeSentarLaMesa) {
       throw new HttpsError('failed-precondition', 'Esa mesa esta libre.')
     }
 
@@ -436,13 +468,30 @@ export const crearPedido = onCall(async (req) => {
       total_acumulado: Number(datos.total_acumulado || 0) + total,
       estado: datos.estado === 'esperando_cuenta' ? datos.estado : 'esperando_preparacion',
     }
+    // Si la abrio el personal, la mesa nace en cero salvo por este pedido.
+    // No se inventan datos que el mozo no tiene: cuantos son y como se
+    // llaman lo completa el comensal si despues escanea el QR.
+    if (mesaEstabaLibre) {
+      cambios.mesa_numero = mesaId.replace(/^mesa_/, '')
+      cambios.clientes = []
+      cambios.dispositivos = []
+      cambios.personas = 0
+      cambios.carrito = []
+      cambios.carrito_bloqueado = false
+      cambios.propina = 0
+      cambios.metodo_pago = null
+      cambios.abona_con = null
+      cambios.hora_apertura = FieldValue.serverTimestamp()
+      cambios.abierta_por = { uid: actor.uid, rol: actor.rol }
+    }
     // El carrito se vacia y se marca consumido solo cuando fue el carrito
     // lo que se confirmo. Un pedido extra no tiene por que tocarlo.
     if (!pidioRenglones) {
       cambios.carrito = []
       cambios.carrito_bloqueado = true
     }
-    tx.update(refMesa, cambios)
+    if (mesa.exists) tx.update(refMesa, cambios)
+    else tx.set(refMesa, cambios)
 
     return { pedidoId: refPedido.id, total, repetido: false }
   })
