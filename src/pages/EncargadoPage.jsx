@@ -710,7 +710,7 @@ export default function EncargadoPage() {
                 </div>
                 {!soporte && (
                   <div className={styles.chatInput}>
-                    <input className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
+                    <input name="mensaje-al-cliente" aria-label="Mensaje al cliente..." className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
                       placeholder="Mensaje al cliente..." value={textoMsg}
                       onChange={e => setTextoMsg(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEnviarMensaje()} />
                     <button className={styles.sendBtn} onClick={handleEnviarMensaje}>→</button>
@@ -786,10 +786,12 @@ export default function EncargadoPage() {
               <div className={styles.formCard}>
                 <h3 className={styles.subTitle}>Nuevo producto</h3>
                 <div className={styles.formGrid}>
-                  <input className="input" placeholder="Nombre" value={nuevoItem.nombre} onChange={e => setNuevoItem(p=>({...p,nombre:e.target.value}))} />
-                  <input className="input" placeholder="Descripción" value={nuevoItem.descripcion} onChange={e => setNuevoItem(p=>({...p,descripcion:e.target.value}))} />
-                  <input className="input" placeholder="Precio" type="number" value={nuevoItem.precio} onChange={e => setNuevoItem(p=>({...p,precio:Number(e.target.value)}))} />
-                  <select className="input" value={nuevoItem.categoria} onChange={e => {
+                  <input name="nombre" aria-label="Nombre" className="input" placeholder="Nombre" value={nuevoItem.nombre} onChange={e => setNuevoItem(p=>({...p,nombre:e.target.value}))} />
+                  <input name="descripcion" aria-label="Descripción" className="input" placeholder="Descripción" value={nuevoItem.descripcion} onChange={e => setNuevoItem(p=>({...p,descripcion:e.target.value}))} />
+                  <input name="precio" aria-label="Precio" className="input" placeholder="Precio" type="number" value={nuevoItem.precio} onChange={e => setNuevoItem(p=>({...p,precio:Number(e.target.value)}))} />
+                  <select className="input" name="nuevo-item-categoria"
+                    aria-label="Categoría del producto"
+                    value={nuevoItem.categoria} onChange={e => {
                     const cat = e.target.value
                     const destino = cat==='comida'||cat==='postre'?'cocina':cat==='bebida_preparada'?'encargado':cat==='promocion'?'cocina':'mozo'
                     setNuevoItem(p=>({...p,categoria:cat,destino}))
@@ -833,9 +835,9 @@ export default function EncargadoPage() {
                       {editandoItem?.id === item.id ? (
                         <div className={styles.formCard}>
                           <div className={styles.formGrid}>
-                            <input className="input" placeholder="Nombre" value={editandoItem.nombre} onChange={e => setEditandoItem(p=>({...p,nombre:e.target.value}))} />
-                            <input className="input" placeholder="Descripción" value={editandoItem.descripcion} onChange={e => setEditandoItem(p=>({...p,descripcion:e.target.value}))} />
-                            <input className="input" placeholder="Precio" type="number" value={editandoItem.precio} onChange={e => setEditandoItem(p=>({...p,precio:Number(e.target.value)}))} />
+                            <input name="nombre-2" aria-label="Nombre" className="input" placeholder="Nombre" value={editandoItem.nombre} onChange={e => setEditandoItem(p=>({...p,nombre:e.target.value}))} />
+                            <input name="descripcion-2" aria-label="Descripción" className="input" placeholder="Descripción" value={editandoItem.descripcion} onChange={e => setEditandoItem(p=>({...p,descripcion:e.target.value}))} />
+                            <input name="precio-2" aria-label="Precio" className="input" placeholder="Precio" type="number" value={editandoItem.precio} onChange={e => setEditandoItem(p=>({...p,precio:Number(e.target.value)}))} />
                             {editandoItem.categoria === 'promocion' && (
                               <div style={{gridColumn:'1/-1'}}>
                                 <label style={{fontSize:'0.78em',color:'var(--text2)',display:'block',marginBottom:4}} htmlFor="enc-a-donde-va-este-pedido-2">¿A dónde va este pedido?</label>

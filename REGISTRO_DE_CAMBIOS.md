@@ -17,6 +17,48 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — Los dispositivos se quedaban con la app vieja (AUD-018)
+
+- **IDs:** `AUD-018` (Resuelto, sin desplegar). Es el riesgo que `AUD-013` había anotado como
+  "la PWA usa `autoUpdate` sin una estrategia visible de migración de versiones", y que apareció
+  en la prueba real.
+- **Archivos:** `src/utils/actualizacion.js` (nuevo), `src/components/AvisoDeVersion.jsx`
+  (nuevo), `src/main.jsx`, `src/App.jsx`, `vite.config.js`, y los campos de formulario de las
+  cinco vistas.
+- **Cambio:** el encargado no podía cobrar ninguna mesa: **"Error al liberar mesa: Missing or
+  insufficient permissions."**
+
+  El diagnóstico salió del propio mensaje: ese texto es del código **anterior** —el actual dice
+  "No se pudo cerrar la mesa"—. Se verificó desde afuera que el hosting tenía el código nuevo
+  (el chunk desplegado contiene el texto nuevo y no el viejo), así que el servidor estaba bien:
+  **el dispositivo seguía corriendo la versión vieja**.
+
+  Y ahí la combinación se vuelve fea. Las reglas nuevas —desplegadas— dejaron de permitir que el
+  navegador escriba en la caja, porque eso ahora lo hace el backend (`AUD-005`). El cliente
+  viejo lo intentaba igual. El error no daba ninguna pista de que el problema fuera la versión.
+
+  **La causa de fondo:** la app es una PWA y el service worker sirve una copia local. Una
+  pestaña abierta sigue con el código con el que se abrió, y en un bar la tablet de la barra se
+  abre a la mañana y no se cierra hasta la noche. Con `registerType: 'autoUpdate'` el service
+  worker se activaba cuando quería y podían pasar horas.
+
+  Ahora es `'prompt'`: la versión nueva **espera**, se pregunta al servidor cada cinco minutos, y
+  se avisa en pantalla con un botón "Actualizar". Recargar solo mientras alguien está cobrando
+  es peor que esperar, así que la aplicación automática ocurre únicamente cuando la pestaña pasa
+  a segundo plano —nadie está mirando—, que es justo el caso de la tablet olvidada abierta.
+
+  **De paso, el otro síntoma reportado.** El cartel amarillo que aparecía al elegir un producto
+  no era un error de la app: era el panel *Issues* de DevTools diciendo "A form field element
+  should have an id or name attribute". Igual se corrigió, porque era real: **23 campos de
+  formulario sin `name` ni `aria-label`**, uno por producto del carrito. Los otros dos avisos de
+  la captura vienen de una extensión del navegador (`contentscript.js`), no de BarFlow.
+- **Validación:** `npm run test:e2e` → 13/13; `npm run test:unidad` → 13/13; `npx eslint .` 0
+  errores; `npm run build` correcto.
+- **Pendiente / riesgos:** sin desplegar. **Los dispositivos que hoy tienen la versión vieja no
+  van a recibir este arreglo solos** —justamente porque tienen la versión vieja—: hay que forzar
+  una actualización una última vez a mano en cada uno. De acá en adelante se resuelve solo.
+
+
 ### 2026-08-27 — Claude — Accesibilidad y el tamaño de EncargadoPage (AUD-013)
 
 - **IDs:** `AUD-013` (Resuelto, sin desplegar). Queda sólo la revisión de contraste.

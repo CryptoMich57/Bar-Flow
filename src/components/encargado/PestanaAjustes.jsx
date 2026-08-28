@@ -72,6 +72,7 @@ export default function PestanaAjustes({
               <p className={styles.ajustesDesc}>Cuántas mesas se muestran en el salón. Máximo 30.</p>
               <div style={{maxWidth:200}}>
                 <input className="input" type="number" min="1" max="30"
+                  name="cantidad-mesas" aria-label="Cantidad de mesas del salón"
                   value={configDB.mesas?.cantidad || 10}
                   onChange={e => onCambiar('mesas.cantidad', parseInt(e.target.value) || 10)} />
               </div>

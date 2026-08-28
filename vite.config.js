@@ -6,7 +6,16 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' y no 'autoUpdate': con autoUpdate el service worker se
+      // activa cuando quiere y la pestaña abierta puede seguir horas con
+      // el codigo viejo sin que nadie lo note. Con 'prompt' la version
+      // nueva espera y la aplicamos nosotros —ver src/utils/actualizacion.js—,
+      // avisando en pantalla en vez de recargar encima de alguien que
+      // esta cobrando.
+      registerType: 'prompt',
+      // El registro lo hace main.jsx, no un script inyectado: hace falta
+      // engancharle el aviso de version nueva.
+      injectRegister: null,
       includeAssets: ['logo.png', 'apple-touch-icon.png', 'favicon.ico'],
       manifest: {
         name:             'BarFlow',

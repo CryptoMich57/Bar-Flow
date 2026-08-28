@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import PuertaDeAcceso from './components/PuertaDeAcceso'
+import AvisoDeVersion from './components/AvisoDeVersion'
 import { LocalProvider, useLocal } from './utils/LocalContext'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
@@ -150,6 +151,8 @@ export default function App() {
   return (
     // El fallback tiene que ser sobrio: aparece un instante mientras baja
     // el chunk de la vista, y en una conexion buena casi no se ve.
+    <>
+    <AvisoDeVersion />
     <Suspense fallback={<div className="pantallaEstado"><p>Cargando...</p></div>}>
     <Routes>
       {/* ── Plataforma ────────────────────────────────────── */}
@@ -191,5 +194,6 @@ export default function App() {
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
     </Suspense>
+    </>
   )
 }

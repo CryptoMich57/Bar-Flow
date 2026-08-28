@@ -514,7 +514,10 @@ export default function MozoPage() {
                         <span className={styles.itemNombre}>{item.nombre}</span>
                         <span className={styles.itemPrecio}>${item.precio.toLocaleString()}</span>
                         {cant > 0 && (
-                          <input className={styles.notaInput} placeholder="Nota (ej: sin tomate)..."
+                          <input className={styles.notaInput}
+                            id={`nota-mozo-${item.id}`} name={`nota-mozo-${item.id}`}
+                            aria-label={`Nota para ${item.nombre}`}
+                            placeholder="Nota (ej: sin tomate)..."
                             value={carritoMozo.find(i=>i.id===item.id)?.nota||''}
                             onChange={e => actualizarNotaMozo(item.id, e.target.value)} />
                         )}

@@ -175,6 +175,7 @@ export default function EquipoDelLocal({ localId, cantidadMesas = 10 }) {
 
                 <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
                   <select className="input" style={{width:'auto', padding:'8px 10px'}}
+                    name={`rol-${p.uid}`} aria-label={`Rol de ${p.nombre || p.email}`}
                     value={p.rol} disabled={soyYo}
                     onChange={e => handleRol(p.uid, e.target.value)}>
                     {ROLES.map(r => <option key={r} value={r}>{ETIQUETA_ROL[r]}</option>)}

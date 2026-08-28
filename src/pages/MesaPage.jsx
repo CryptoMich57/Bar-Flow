@@ -393,7 +393,7 @@ export default function MesaPage() {
               ))}
             </div>
             <input className="input" style={{marginTop:10}}
-              aria-label="Escribí lo que necesitás"
+              name="nota-al-mozo" aria-label="Escribí lo que necesitás"
               placeholder="O escribí lo que necesitás..."
               value={notaMozo} onChange={e => setNotaMozo(e.target.value)} />
             <div style={{display:'flex',gap:8,marginTop:12}}>
@@ -461,6 +461,8 @@ export default function MesaPage() {
                     <span>{item.nombre}</span>
                     <input
                       className={styles.notaInput}
+                      id={`nota-${item.id}`} name={`nota-${item.id}`}
+                      aria-label={`Nota para ${item.nombre}`}
                       placeholder="Nota (ej: sin tomate)..."
                       value={notasPorItem[item.id] || ''}
                       onChange={e => setNotasPorItem(prev => ({ ...prev, [item.id]: e.target.value }))}
@@ -503,6 +505,8 @@ export default function MesaPage() {
                     <span>{item.nombre}</span>
                     <input
                       className={styles.notaInput}
+                      id={`nota-${item.id}`} name={`nota-${item.id}`}
+                      aria-label={`Nota para ${item.nombre}`}
                       placeholder="Nota (ej: sin tomate)..."
                       value={notasPorItem[item.id] || item.nota || ''}
                       onChange={e => setNotasPorItem(prev => ({ ...prev, [item.id]: e.target.value }))}
@@ -615,7 +619,7 @@ export default function MesaPage() {
             ))}
           </div>
           <div className={styles.chatInput}>
-            <input className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
+            <input name="escribi-un-mensaje" aria-label="Escribí un mensaje..." className="input" style={{borderRadius:'10px 0 0 10px',borderRight:'none'}}
               placeholder="Escribí un mensaje..." value={textoMensaje}
               onChange={e => setTextoMensaje(e.target.value)} onKeyDown={e => e.key==='Enter'&&handleEnviarMensaje()} />
             <button className={styles.chatSend} onClick={handleEnviarMensaje} disabled={!textoMensaje.trim()}>→</button>
@@ -675,7 +679,7 @@ export default function MesaPage() {
                     ))}
                   </div>
                   {propina==='custom' && (
-                    <input className="input" style={{marginTop:10}} placeholder="Monto de propina..."
+                    <input name="monto-de-propina" aria-label="Monto de propina..." className="input" style={{marginTop:10}} placeholder="Monto de propina..."
                       type="number" value={propinaCustom} onChange={e => setPropinaCustom(e.target.value)} />
                   )}
 
@@ -696,7 +700,7 @@ export default function MesaPage() {
                       <p style={{color:'var(--text2)',fontSize:'0.82em',marginBottom:8}}>
                         Total a pagar: <strong>${(totalFinal+calcularPropina()).toLocaleString()}</strong>
                       </p>
-                      <input className="input" type="number" placeholder="Ej: 5000"
+                      <input name="ej-5000" aria-label="Ej: 5000" className="input" type="number" placeholder="Ej: 5000"
                         value={abonaCon} onChange={e => setAbonaCon(e.target.value)} />
                       {abonaCon && parseFloat(abonaCon) >= totalFinal + calcularPropina() && (
                         <p style={{color:'var(--green)',fontSize:'0.85em',marginTop:6}}>

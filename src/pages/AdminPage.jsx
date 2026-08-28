@@ -120,7 +120,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <input className="input" placeholder="Buscar por nombre o identificador"
+        <input name="buscar-por-nombre-o-identificador" aria-label="Buscar por nombre o identificador" className="input" placeholder="Buscar por nombre o identificador"
           value={filtro} onChange={e => setFiltro(e.target.value)} />
 
         {error && <p style={{color:'var(--red)', marginTop:16}}>{error}</p>}
