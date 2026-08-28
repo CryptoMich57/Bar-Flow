@@ -172,3 +172,96 @@
 /* ── FOOTER ──────────────────────────────────────────────────────────────── */
 .footer { text-align: center; padding: 16px; color: var(--text3); font-size: 0.72em; }
 .footerApp { text-align: center; padding: 10px; color: var(--text3); font-size: 0.7em; border-top: 1px solid var(--border); flex-shrink: 0; }
+/* ── Mis mesas: la vista de trabajo del mozo ────────────────────────────
+   Antes esta seccion solo listaba pedidos pendientes de llevar, asi que
+   una mesa que ya recibio todo se veia "Sin pedidos" aunque debiera
+   $2.500. Ahora muestra la mesa entera: consumo, quien esta, y el cobro. */
+
+.mesaLibre { opacity: 0.45; }
+
+.mesaQuien {
+  font-size: 0.8em;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.mesaAbiertaPor {
+  font-size: 0.78em;
+  color: var(--gold);
+  font-style: italic;
+}
+
+/* Lo ya entregado sigue a la vista —es parte del consumo— pero apagado,
+   para que no compita con lo que falta llevar. */
+.itemEntregado { opacity: 0.5; }
+
+.mesaPie {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mesaTotal {
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.cobrarBtn {
+  background: var(--gold);
+  color: #000;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 0.9em;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cobrarBtn:disabled { opacity: 0.5; cursor: default; }
+
+.esperandoCuenta {
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--red);
+}
+
+/* ── Modal de cobro ─────────────────────────────────────────────────── */
+.modalFondo {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; z-index: 9000;
+}
+
+.modalCaja {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 100%; max-width: 360px;
+}
+
+.modalTitulo { font-size: 1.05em; font-weight: 700; margin-bottom: 4px; }
+.modalSub { font-size: 0.85em; color: var(--text2); margin-bottom: 16px; }
+
+.metodos { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+
+.metodoBtn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 14px;
+  font-family: inherit;
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.metodoBtn:hover { border-color: var(--gold); }

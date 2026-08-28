@@ -64,7 +64,7 @@ test('el mozo puede tomar un pedido de la promocion del dia', async ({ page }) =
 
   await expect.poll(async () =>
     (await listar(`locales/${LOCAL}/mesas/mesa_1/pedidos`)).length,
-    { timeout: 20_000 }).toBe(1)
+    { timeout: 40_000 }).toBe(1)
 
   const [pedido] = await listar(`locales/${LOCAL}/mesas/mesa_1/pedidos`)
   expect(pedido.total).toBe(5000)
@@ -86,7 +86,7 @@ test('el mozo toma el pedido de una mesa que nadie abrio', async ({ page }) => {
 
   await expect.poll(async () =>
     (await listar(`locales/${LOCAL}/mesas/mesa_1/pedidos`)).length,
-    { timeout: 20_000 }).toBe(1)
+    { timeout: 40_000 }).toBe(1)
 
   const mesa = await leer(`locales/${LOCAL}/mesas/mesa_1`)
   expect(mesa.estado).toBe('esperando_preparacion')
@@ -126,11 +126,101 @@ test('el encargado cierra la mesa y el cobro queda una sola vez en la caja', asy
   await page.getByRole('button', { name: /Confirmar pago y liberar/i }).click()
 
   await expect.poll(async () => (await listar(`locales/${LOCAL}/historial`)).length,
-    { timeout: 20_000 }).toBe(1)
+    { timeout: 40_000 }).toBe(1)
 
   const [cierre] = await listar(`locales/${LOCAL}/historial`)
   expect(cierre.total_cobrado).toBe(5000)
   expect((await leer(`locales/${LOCAL}/mesas/mesa_1`)).estado).toBe('libre')
+})
+
+test('el circuito completo sin QR: el mozo carga, cobra, y la venta queda en la caja', async ({ page, browser }) => {
+  // El agujero que llego del bar. El mozo podia cargar el pedido pero la
+  // mesa no tenia salida hacia el cobro: la unica era "Cerrar mesa", que
+  // libera SIN registrar la venta. Se cobraba en efectivo y la plata
+  // desaparecia del historial y de las estadisticas, en silencio.
+  await entrarComo(page, {
+    email: 'mario@bar.com', nombre: 'Mario', rol: 'mozo', ruta: 'mozo',
+  })
+
+  // 1. El mozo carga el pedido en una mesa que nadie abrio.
+  await page.getByRole('button', { name: /Tomar pedido/i }).first().click()
+  await page.getByRole('button', { name: 'Mesa 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Agregar Menu del dia' }).click()
+  await page.getByRole('button', { name: /Enviar pedido/i }).click()
+
+  // Esperar a que el envio termine antes de cambiar de pestaña: al
+  // confirmar, la vista salta sola a "Alertas", y ese salto pisaba el
+  // cambio de pestaña si se hacia en el medio.
+  await expect.poll(async () =>
+    (await listar(`locales/${LOCAL}/mesas/mesa_1/pedidos`)).length,
+    { timeout: 40_000 }).toBe(1)
+
+  // 2. "Mis mesas" tiene que mostrarla, con su total y quien la abrio.
+  //    Antes esta seccion decia "Sin pedidos" apenas se entregaba todo.
+  await page.getByRole('button', { name: /Mis mesas/i }).click()
+  // El separador de miles depende del idioma del navegador: el runner da
+  // "5,000" y un telefono argentino "5.000". La prueba no puede casarse
+  // con uno de los dos.
+  await expect(page.getByText(/5[.,]000/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/Cargada por/i)).toBeVisible()
+
+  // 3. El mozo cobra: elige el metodo y la mesa pasa a pedir la cuenta.
+  await page.getByRole('button', { name: /Cobrar/i }).first().click()
+  await page.getByRole('button', { name: /Efectivo/i }).click()
+
+  await expect.poll(async () =>
+    (await leer(`locales/${LOCAL}/mesas/mesa_1`))?.estado,
+    { timeout: 20_000 }).toBe('esperando_cuenta')
+  expect((await leer(`locales/${LOCAL}/mesas/mesa_1`)).metodo_pago).toBe('efectivo')
+
+  // 4. El encargado la cierra, y RECIEN AHI se escribe la caja.
+  //    Contexto aparte y no otra pestaña: la sesion de Firebase se comparte
+  //    entre pestañas del mismo navegador, asi que el encargado heredaba la
+  //    cuenta del mozo. Son dos dispositivos distintos en el bar tambien.
+  const dispositivoEncargado = await browser.newContext()
+  const paginaEncargado = await dispositivoEncargado.newPage()
+  await entrarComo(paginaEncargado, {
+    email: 'ana@bar.com', nombre: 'Ana', rol: 'encargado', ruta: 'encargado',
+  })
+  paginaEncargado.on('dialog', d => d.accept())
+  await expect(tarjetaDeMesa(paginaEncargado, 1)).toContainText(/Pide cuenta/i)
+  await tarjetaDeMesa(paginaEncargado, 1).click()
+  await paginaEncargado.getByRole('button', { name: /Confirmar pago y liberar/i }).click()
+
+  await expect.poll(async () => (await listar(`locales/${LOCAL}/historial`)).length,
+    { timeout: 40_000 }).toBe(1)
+
+  const [cierre] = await listar(`locales/${LOCAL}/historial`)
+  expect(cierre.total_cobrado).toBe(5000)
+  expect(cierre.metodo_pago).toBe('efectivo')
+  expect((await leer(`locales/${LOCAL}/mesas/mesa_1`)).estado).toBe('libre')
+
+  await dispositivoEncargado.close()
+})
+
+test('el encargado puede cobrar una mesa que cargo el mozo', async ({ page }) => {
+  // El mismo circuito pero sin el mozo a mano: el cliente se acerco a la
+  // barra a pagar.
+  await escribir(`locales/${LOCAL}/mesas/mesa_2`, {
+    estado: 'esperando_preparacion', personas: 0, clientes: [], carrito: [],
+    carrito_bloqueado: false, total_acumulado: 3000, propina: 0,
+    metodo_pago: null, abona_con: null,
+  })
+  await entrarComo(page, {
+    email: 'ana@bar.com', nombre: 'Ana', rol: 'encargado', ruta: 'encargado',
+  })
+
+  page.on('dialog', d => d.accept())
+  await tarjetaDeMesa(page, 2).click()
+  await page.getByRole('button', { name: /Cobrar/ }).click()
+  await page.getByRole('button', { name: /Tarjeta/i }).click()
+  await page.getByRole('button', { name: /Confirmar pago y liberar/i }).click()
+
+  await expect.poll(async () => (await listar(`locales/${LOCAL}/historial`)).length,
+    { timeout: 40_000 }).toBe(1)
+  const [cierre] = await listar(`locales/${LOCAL}/historial`)
+  expect(cierre.total_cobrado).toBe(3000)
+  expect(cierre.metodo_pago).toBe('tarjeta')
 })
 
 test('quien no trabaja en el local no entra', async ({ page }) => {

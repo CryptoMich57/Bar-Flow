@@ -17,6 +17,54 @@ No reescribir entradas anteriores. Agregar la más reciente arriba de las demás
 
 ## Cambios
 
+### 2026-08-27 — Claude — La venta del mozo desaparecía de la caja (AUD-020)
+
+- **IDs:** `AUD-020` (Resuelto, sin desplegar).
+- **Archivos:** `functions/index.js`, `src/pages/MozoPage.jsx` + su hoja de estilos,
+  `src/pages/EncargadoPage.jsx` + su hoja de estilos, `tests/funciones.test.js`,
+  `tests/e2e/personal.spec.js`.
+- **Cambio:** reportado como "no se puede cobrar la mesa que carga el mozo". Al rastrearlo
+  resultó ser peor que eso.
+
+  `pedirCuenta` —lo único que pone una mesa en estado de cobro— **se llamaba desde un solo lugar
+  en toda la app: el teléfono del comensal**. No existía ni en la vista del mozo ni en la del
+  encargado. Y el botón "Confirmar pago y liberar" del encargado sólo aparece si la mesa está en
+  `esperando_cuenta`.
+
+  Entonces una mesa abierta por el mozo tenía **una sola salida**: "🚪 Cerrar mesa", que llama a
+  `cerrarMesa` con `conRegistro: false` —literalmente "se fue sin pagar"—. **La venta se cobraba
+  en efectivo y no quedaba registrada en ningún lado**: ni en el historial, ni en las
+  estadísticas del día. Sin error, sin aviso. Al cierre del turno los números no dan y no hay
+  rastro.
+
+  **Lo que se hizo,** con la división que definió el dueño: el mozo marca cómo se paga, el
+  encargado cierra la caja.
+
+  - **"Mis mesas" del mozo pasó a ser su vista de trabajo.** Antes listaba sólo los pedidos
+    pendientes de llevar, y el filtro `estado !== 'entregado'` vivía en la suscripción: una mesa
+    que ya había recibido todo mostraba "Sin pedidos" aunque debiera $2.500. Ahora muestra la
+    mesa entera —total acumulado, quién está, el consumo incluido lo entregado (atenuado)— y un
+    botón **"💵 Cobrar"**.
+  - **Cobrar = elegir método de pago** → `pedirCuenta`. La mesa queda en `esperando_cuenta`, que
+    es exactamente el estado que el encargado ya sabe cerrar. **No hizo falta tocar permisos**:
+    el backend ya aceptaba al mozo, sólo faltaba el botón.
+  - **El encargado tiene la misma acción** en su panel, para cuando el mozo no está o el cliente
+    se acerca a la barra a pagar.
+  - **La mesa dice quién la abrió.** El backend guarda ahora el nombre además del uid, así una
+    mesa sin comensales no queda anónima: "🧍 Cargada por vos".
+  - **"Cerrar mesa" pasó a llamarse "Se fue sin pagar"** y su confirmación dice explícitamente
+    que la venta NO va a aparecer en el historial ni en las estadísticas. Ese botón era la
+    trampa.
+- **Validación:** `npm run test:e2e` → **16/16**, con un recorrido que hace el circuito completo
+  con dos dispositivos: el mozo carga en una mesa vacía, cobra, y el encargado cierra;
+  `npm run test:funciones` → 45/45; reglas 45/45; unidad 13/13; lint 0 errores; build correcto.
+- **Pendiente / riesgos:** **hay que desplegar Functions** (el nombre en `abierta_por`) además
+  de hosting. Dos cosas menores que aparecieron y no se tocaron: los importes usan
+  `toLocaleString()` sin fijar idioma, así que un teléfono en inglés muestra `$5,000` en vez de
+  `$5.000`; y al confirmar un pedido la vista del mozo salta sola a "Alertas", lo que pisa un
+  cambio de pestaña hecho mientras se envía.
+
+
 ### 2026-08-27 — Claude — El mozo no podía vender sin que el cliente escaneara (AUD-019)
 
 - **IDs:** `AUD-019` (Resuelto, sin desplegar).

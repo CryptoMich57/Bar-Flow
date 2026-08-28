@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   suscribirPedidos, suscribirMensajes, enviarMensaje, cerrarMesa,
-  suscribirUltimoMensaje, suscribirMesas,
+  suscribirUltimoMensaje, suscribirMesas, pedirCuenta,
 } from '../firebase/mesa'
 import { llamarBackend } from '../firebase/funciones'
 import {
@@ -42,12 +42,20 @@ const ESTADO_LABEL = {
   cuenta_cobrada:       '✅ Cobrada',
 }
 
+const METODOS_DE_PAGO = {
+  efectivo:      '💵 Efectivo',
+  tarjeta:       '💳 Tarjeta',
+  transferencia: '📲 Transferencia',
+}
+
 export default function EncargadoPage() {
   const { localId, local, nombre: nombreBar, logo } = useLocal()
   // soporte = Hexa Group mirando el local de un cliente. Ve todo, no opera.
   const { soporte } = useAccesoActual()
   const [mesas, setMesas]                   = useState({})
   const [mesaSeleccionada, setMesaSeleccionada] = useState(null)
+  // Mesa que se esta pasando a cobro desde el panel del encargado.
+  const [mesaACobrar, setMesaACobrar]       = useState(null)
   const [pedidos, setPedidos]               = useState([])
   const [mensajes, setMensajes]             = useState([])
   const [llamadas, setLlamadas]             = useState([])
@@ -367,6 +375,23 @@ export default function EncargadoPage() {
   }
 
   // ── Confirmar pago y liberar mesa ────────────────────────────────────────────
+  /**
+   * Pasa la mesa a "pide la cuenta" con un metodo de pago.
+   *
+   * Hasta ahora esto solo podia hacerlo el comensal desde su telefono. Una
+   * mesa cargada por el mozo —o un cliente que se acerco a la barra a
+   * pagar— no tenia forma de llegar al cobro, y la unica salida era
+   * "Cerrar mesa", que libera SIN registrar la venta en la caja.
+   */
+  const pasarACobro = async (mesaId, metodoPago) => {
+    try {
+      await pedirCuenta(localId, mesaId, metodoPago, 0, null)
+      setMesaACobrar(null)
+    } catch (e) {
+      notif(`No se pudo pasar a cobro: ${e.message}`, 'Red', 6000)
+    }
+  }
+
   // El cierre lo arma el backend en una sola transaccion: el registro en la
   // caja y la mesa libre van juntos o no va ninguno. Antes eran dos
   // escrituras y un corte en el medio permitia cobrar dos veces lo mismo.
@@ -386,7 +411,15 @@ export default function EncargadoPage() {
 
   // ── Resetear mesa sin registro (se fue sin pagar) ───────────────────────────
   const resetearMesaSinPago = async (mesaId) => {
-    if (!window.confirm(`¿Resetear Mesa ${mesaId} sin registro? Se perderán todos los datos.`)) return
+    // El texto importa: este boton era la unica salida de una mesa cargada
+    // por el mozo, y no dice que la venta no queda registrada en ningun
+    // lado. Se cobraba en efectivo y la plata desaparecia de la caja.
+    if (!window.confirm(
+      `Mesa ${mesaId}: liberar SIN registrar la venta.\n\n` +
+      'El consumo NO va a aparecer en el historial ni en las estadisticas ' +
+      'del dia. Usalo solo si la mesa se fue sin pagar.\n\n' +
+      '¿Seguro?'
+    )) return
     try {
       await cerrarMesa(localId, mesaId, { conRegistro: false })
       setMesaSeleccionada(null); setPedidos([]); setMensajes([]); setLlamadas([])
@@ -563,6 +596,32 @@ export default function EncargadoPage() {
         )}
 
         <NotifBanner />
+
+        {/* Pasar una mesa a cobro: elegir como paga. La propina la deja el
+            comensal desde su telefono; desde aca no se inventa. */}
+        {mesaACobrar && (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+          <div className={styles.cobroFondo}
+            onClick={e => { if (e.target === e.currentTarget) setMesaACobrar(null) }}>
+            <div className={styles.cobroCaja} role="dialog" aria-modal="true"
+              aria-labelledby="enc-titulo-cobro">
+              <p className={styles.cobroTitulo} id="enc-titulo-cobro">
+                💵 Cobrar Mesa {mesaACobrar}
+              </p>
+              <p className={styles.cobroSub}>
+                ${Number(mesas[mesaACobrar]?.total_acumulado || 0).toLocaleString()} · ¿Cómo paga?
+              </p>
+              {Object.entries(METODOS_DE_PAGO).map(([clave, label]) => (
+                <button key={clave} className={styles.cobroMetodo}
+                  onClick={() => pasarACobro(mesaACobrar, clave)}>
+                  {label}
+                </button>
+              ))}
+              <button className="btn btn-ghost" style={{width:'100%', marginTop:8}}
+                onClick={() => setMesaACobrar(null)}>Cancelar</button>
+            </div>
+          </div>
+        )}
       {/* ════════════════ TAB MESAS ════════════════ */}
         {tab === 'mesas' && (
           <div className={styles.mesasLayout}>
@@ -609,9 +668,20 @@ export default function EncargadoPage() {
                         ✅ Confirmar pago y liberar
                       </button>
                     )}
+                    {/* Una mesa con consumo que todavia no pidio la cuenta:
+                        pasa a cobro desde aca. Antes solo podia hacerlo el
+                        comensal desde su telefono. */}
+                    {!soporte && mesaData.estado !== 'libre'
+                      && mesaData.estado !== 'esperando_cuenta'
+                      && mesaData.estado !== 'cuenta_cobrada'
+                      && Number(mesaData.total_acumulado || 0) > 0 && (
+                      <button className={styles.pagarBtn} onClick={() => setMesaACobrar(mesaSeleccionada)}>
+                        💵 Cobrar
+                      </button>
+                    )}
                     {!soporte && mesaData.estado !== 'libre' && (
                       <button className={styles.resetBtn} onClick={() => resetearMesaSinPago(mesaSeleccionada)}>
-                        🚪 Cerrar mesa
+                        🚪 Se fue sin pagar
                       </button>
                     )}
                   </div>

@@ -3,7 +3,7 @@ import { onSnapshot, updateDoc, query, orderBy } from 'firebase/firestore'
 import { llamarBackend } from '../firebase/funciones'
 import { getCopyright, MESAS_POR_DEFECTO } from '../config'
 import { suscribirConfiguracion } from '../firebase/configuracion'
-import { suscribirCarta, agregarPedidoExtra, suscribirMesas } from '../firebase/mesa'
+import { suscribirCarta, agregarPedidoExtra, suscribirMesas, pedirCuenta } from '../firebase/mesa'
 import { refMesa, colPedidos, colLlamadas, refLlamada } from '../firebase/rutas'
 import { useLocal } from '../utils/LocalContext'
 import { useAccesoActual } from '../utils/AccesoContext'
@@ -15,6 +15,20 @@ import { useNotificaciones } from '../utils/useNotificaciones.jsx'
 import { sonidoPedidoListo, sonidoLlamadaMozo, sonidoCuenta } from '../utils/sonidos'
 import { useAudioListo } from '../utils/useAudio'
 import { cerrarSesion } from '../firebase/auth'
+
+// Los estados de la mesa, dichos como los diria un mozo.
+const ESTADO_PARA_EL_MOZO = {
+  ocupada:               '🟦 Sentados',
+  esperando_preparacion: '🟡 Pedido en curso',
+  esperando_cuenta:      '🔴 Pide la cuenta',
+  cuenta_cobrada:        '✅ Cobrada',
+}
+
+const METODO_LABEL = {
+  efectivo:      '💵 Efectivo',
+  tarjeta:       '💳 Tarjeta',
+  transferencia: '📲 Transferencia',
+}
 
 export default function MozoPage() {
   const { localId, nombre: nombreBar, logo } = useLocal()
@@ -30,6 +44,10 @@ export default function MozoPage() {
   const [carta, setCarta]                 = useState([])
   const [tab, setTab]                     = useState('alertas')
   const [mesaPedido, setMesaPedido]       = useState(null)
+  // Mesa que se esta cobrando: el mozo elige el metodo de pago y la mesa
+  // queda pidiendo la cuenta. Cerrar la caja sigue siendo del encargado.
+  const [mesaACobrar, setMesaACobrar]     = useState(null)
+  const [cobrando, setCobrando]           = useState(false)
   const [carritoMozo, setCarritoMozo]     = useState([])
   const [categoriaActiva, setCategoriaActiva] = useState(null)
   const [cargando, setCargando]           = useState(false)
@@ -64,7 +82,7 @@ export default function MozoPage() {
       const u2 = onSnapshot(
         query(colPedidos(localId, num), orderBy('created_at', 'asc')),
         snap => {
-          const pedidos = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.estado !== 'entregado')
+          const pedidos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
           setPedidosPorMesa(prev => ({ ...prev, [num]: pedidos }))
         },
         (e) => notif(`No se ven los pedidos de la mesa ${num}: ${e.message}`, 'Red', 8000),
@@ -189,7 +207,8 @@ export default function MozoPage() {
 
   const pedidosMozo = misMesas
     .flatMap(num => (pedidosPorMesa[num] || []).map(p => ({ ...p, mesaId: num })))
-    .filter(p => p.estado !== 'listo' && p.items?.some(i => i.destino === 'mozo'))
+    .filter(p => p.estado !== 'listo' && p.estado !== 'entregado'
+      && p.items?.some(i => i.destino === 'mozo'))
 
   const llamadasPendientes = misMesas
     .flatMap(num => (llamadasPorMesa[num] || []).map(l => ({ ...l, mesaId: num })))
@@ -221,9 +240,42 @@ export default function MozoPage() {
     await updateDoc(refLlamada(localId, mesaId, llamadaId), { estado: 'resuelto' })
   }
 
+  /**
+   * El mozo marca COMO se paga; el encargado confirma y cierra la caja.
+   *
+   * Es la division que ya existia y que faltaba conectar: `pedirCuenta` deja
+   * la mesa en "esperando_cuenta", que es exactamente el estado del que el
+   * encargado sabe salir con "Confirmar pago y liberar".
+   *
+   * Antes esto solo podia hacerlo el comensal desde su telefono, asi que una
+   * mesa cargada por el mozo no tenia forma de llegar al cobro: la unica
+   * salida era "Cerrar mesa", que libera SIN registrar la venta. La plata
+   * desaparecia de la caja sin que nadie lo notara.
+   */
+  const cobrarMesa = async (mesaId, metodoPago) => {
+    setCobrando(true)
+    try {
+      await pedirCuenta(localId, mesaId, metodoPago, 0, null)
+      setMesaACobrar(null)
+      notif(`Mesa ${mesaId} lista para cobrar. El encargado la cierra.`, 'Green', 5000)
+    } catch (e) {
+      notif(`No se pudo pasar a cobro: ${e.message}`, 'Red', 6000)
+    }
+    setCobrando(false)
+  }
+
   const marcarMesaCobrada = async (mesaId) => {
     await updateDoc(refMesa(localId, mesaId), { estado: 'cuenta_cobrada' })
   }
+
+  // Escape cierra el cobro. Es el camino de teclado del modal: tocar el
+  // fondo es una comodidad del mouse.
+  useEffect(() => {
+    if (!mesaACobrar) return
+    const alTeclado = (e) => { if (e.key === 'Escape') setMesaACobrar(null) }
+    window.addEventListener('keydown', alTeclado)
+    return () => window.removeEventListener('keydown', alTeclado)
+  }, [mesaACobrar])
 
   // ── Cargar pedido desde la vista del mozo ────────────────────────────────────
   const agregarAlCarritoMozo = (item) => {
@@ -432,39 +484,110 @@ export default function MozoPage() {
       {tab === 'mesas' && (
         <div className={styles.content}>
           <h2 className={styles.seccion}>Mis mesas</h2>
+
+          {misMesas.every(n => !mesas[n] || mesas[n].estado === 'libre') && (
+            <p style={{color:'var(--text3)',fontSize:'0.85em',padding:'12px 0'}}>
+              Ninguna de tus mesas esta ocupada. Cargá un pedido desde
+              "Tomar pedido" y la mesa se abre sola.
+            </p>
+          )}
+
           {misMesas.map(num => {
             const mesa = mesas[num]
+            const libre = !mesa || mesa.estado === 'libre'
             const pedidosMesa = pedidosPorMesa[num] || []
+            const total = Number(mesa?.total_acumulado || 0)
+            const pideCuenta = mesa?.estado === 'esperando_cuenta' || mesa?.estado === 'cuenta_cobrada'
+
+            // Una mesa que abrio el mozo no tiene comensales cargados: sin
+            // esto quedaba como "Ocupada" a secas y no se sabia de quien es.
+            const quien = mesa?.clientes?.length > 0 ? mesa.clientes.join(', ') : null
+
             return (
-              <div key={num} className={styles.mesaDetalle}>
+              <div key={num} className={`${styles.mesaDetalle} ${libre ? styles.mesaLibre : ''}`}>
                 <div className={styles.mesaDetalleHeader}>
                   <span className={styles.mesaTag}>Mesa {num}</span>
                   {personasDe(num)}
                   <span style={{fontSize:'0.82em',color:'var(--text2)'}}>
-                    {mesa?.estado==='libre'?'⬜ Libre':mesa?.clientes?.join(', ')||'Ocupada'}
+                    {libre ? '⬜ Libre' : (ESTADO_PARA_EL_MOZO[mesa.estado] || 'Ocupada')}
                   </span>
                 </div>
-                {pedidosMesa.length > 0 ? pedidosMesa.map((p, pi) => (
-                  <div key={p.id} className={styles.pedidoResumen}>
-                    <span style={{fontSize:'0.78em',color:'var(--text3)'}}>Pedido #{pi+1}</span>
-                    {p.items.map((item, j) => (
-                      <div key={j} className={styles.itemRow}>
-                        <div>
-                          <span>{item.cantidad}× {item.nombre}</span>
-                          {item.nota && <p style={{color:'var(--yellow)',fontSize:'0.75em'}}>📝 {item.nota}</p>}
-                        </div>
-                        <span className={`badge badge-${p.estado==='entregado'?'green':p.estado==='listo'?'yellow':'gold'}`} style={{fontSize:'0.7em'}}>
-                          {p.estado==='pendiente'?'⏳':p.estado==='en_preparacion'?'🔥':p.estado==='listo'?'✅':'🎉'}
-                        </span>
+
+                {!libre && (
+                  <>
+                    {quien && <p className={styles.mesaQuien}>{quien}</p>}
+                    {!quien && mesa?.abierta_por?.nombre && (
+                      <p className={styles.mesaAbiertaPor}>
+                        🧍 Cargada por {mesa.abierta_por.uid === ficha?.uid ? 'vos' : mesa.abierta_por.nombre}
+                      </p>
+                    )}
+
+                    {pedidosMesa.length > 0 ? pedidosMesa.map((p, pi) => (
+                      <div key={p.id}
+                        className={`${styles.pedidoResumen} ${p.estado === 'entregado' ? styles.itemEntregado : ''}`}>
+                        <span style={{fontSize:'0.78em',color:'var(--text3)'}}>Pedido #{pi+1}</span>
+                        {p.items.map((item, j) => (
+                          <div key={j} className={styles.itemRow}>
+                            <div>
+                              <span>{item.cantidad}× {item.nombre}</span>
+                              {item.nota && <p style={{color:'var(--yellow)',fontSize:'0.75em'}}>📝 {item.nota}</p>}
+                            </div>
+                            <span className={`badge badge-${p.estado==='entregado'?'green':p.estado==='listo'?'yellow':'gold'}`} style={{fontSize:'0.7em'}}>
+                              {p.estado==='pendiente'?'⏳':p.estado==='en_preparacion'?'🔥':p.estado==='listo'?'✅':'🎉'}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )) : (
-                  <p style={{color:'var(--text3)',fontSize:'0.82em',padding:'8px 0'}}>Sin pedidos</p>
+                    )) : (
+                      <p style={{color:'var(--text3)',fontSize:'0.82em',padding:'8px 0'}}>Sin pedidos</p>
+                    )}
+
+                    <div className={styles.mesaPie}>
+                      <span className={styles.mesaTotal}>${total.toLocaleString()}</span>
+                      {pideCuenta ? (
+                        <span className={styles.esperandoCuenta}>
+                          💳 {METODO_LABEL[mesa.metodo_pago] || 'Pidió la cuenta'} · la cierra el encargado
+                        </span>
+                      ) : !soporte && total > 0 ? (
+                        <button className={styles.cobrarBtn} onClick={() => setMesaACobrar(num)}>
+                          💵 Cobrar
+                        </button>
+                      ) : null}
+                    </div>
+                  </>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Cobro: el mozo elige el metodo, el encargado cierra la caja. */}
+      {mesaACobrar && (
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div className={styles.modalFondo}
+          onClick={e => { if (e.target === e.currentTarget) setMesaACobrar(null) }}>
+          <div className={styles.modalCaja} role="dialog" aria-modal="true"
+            aria-labelledby="mozo-titulo-cobro">
+            <p className={styles.modalTitulo} id="mozo-titulo-cobro">
+              💵 Cobrar Mesa {mesaACobrar}
+            </p>
+            <p className={styles.modalSub}>
+              ${Number(mesas[mesaACobrar]?.total_acumulado || 0).toLocaleString()} · ¿Cómo paga?
+            </p>
+            <div className={styles.metodos}>
+              {Object.entries(METODO_LABEL).map(([clave, label]) => (
+                <button key={clave} className={styles.metodoBtn} disabled={cobrando}
+                  onClick={() => cobrarMesa(mesaACobrar, clave)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-ghost" style={{width:'100%'}}
+              onClick={() => setMesaACobrar(null)} disabled={cobrando}>
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 

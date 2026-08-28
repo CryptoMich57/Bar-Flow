@@ -176,7 +176,10 @@ const identificar = async (req, localId, mesaId) => {
   if (ficha.exists && ficha.data()?.activo === true) {
     const rol = ficha.data()?.rol
     if (['encargado', 'cocina', 'mozo'].includes(rol)) {
-      return { tipo: 'personal', rol, uid }
+      // El nombre viaja con el actor porque una mesa que abre el mozo no
+      // tiene comensales: sin esto queda anonima en el salon y nadie sabe
+      // quien la esta atendiendo.
+      return { tipo: 'personal', rol, uid, nombre: textoPlano(ficha.data()?.nombre) }
     }
   }
 
@@ -482,7 +485,7 @@ export const crearPedido = onCall(async (req) => {
       cambios.metodo_pago = null
       cambios.abona_con = null
       cambios.hora_apertura = FieldValue.serverTimestamp()
-      cambios.abierta_por = { uid: actor.uid, rol: actor.rol }
+      cambios.abierta_por = { uid: actor.uid, rol: actor.rol, nombre: actor.nombre || '' }
     }
     // El carrito se vacia y se marca consumido solo cuando fue el carrito
     // lo que se confirmo. Un pedido extra no tiene por que tocarlo.

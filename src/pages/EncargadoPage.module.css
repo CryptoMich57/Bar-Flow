@@ -647,3 +647,42 @@
   font-size: 0.82em;
   font-weight: 600;
 }
+
+/* ── Pasar una mesa a cobro ─────────────────────────────────────────────
+   El encargado necesita poder cobrar una mesa que cargo el mozo: antes
+   solo el comensal podia pedir la cuenta desde su telefono, y la unica
+   salida era liberar la mesa sin registrar la venta. */
+.cobroFondo {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; z-index: 9000;
+}
+
+.cobroCaja {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  width: 100%; max-width: 360px;
+}
+
+.cobroTitulo { font-size: 1.05em; font-weight: 700; margin-bottom: 4px; }
+.cobroSub { font-size: 0.85em; color: var(--text2); margin-bottom: 16px; }
+
+.cobroMetodo {
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 8px;
+  font-family: inherit;
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.cobroMetodo:hover { border-color: var(--gold); }

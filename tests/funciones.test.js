@@ -797,6 +797,9 @@ describe('AUD-019 — el mozo toma el pedido antes de que nadie escanee', () => 
     expect(mesa.personas).toBe(0)
     expect(mesa.clientes).toEqual([])
     expect(mesa.abierta_por.uid).toBe('mario')
+    // El nombre viaja con la mesa: sin el, una mesa sin comensales queda
+    // anonima en el salon y nadie sabe quien la atiende.
+    expect(mesa.abierta_por.nombre).toBe('Mario')
   }, PACIENCIA)
 
   it('una mesa que ni siquiera existe tambien', async () => {
